@@ -35,7 +35,7 @@ if (file.exists(locationsCountryFileName)){
 } else {
   destinationCountries <- unique(as.character(df$COUNTRY))
   locationCountryCoordinates <- geocode(destinationCountries)
-  locationCountryCoordinates$COUNTRY <- destinationCountryCountries
+  locationCountryCoordinates$COUNTRY <- destinationCountries
   locationCountryCoordinates$X <- NULL
   write.csv(locationCountryCoordinates, locationsCountryFileName)
 }
@@ -53,6 +53,8 @@ if (file.exists(locationsCityFileName)){
 }
 
 df <- merge(df, locationCityCoordinates)
+library(plyr)
+locationCountryCoordinates <- rename(locationCountryCoordinates, c("lon"="lonCo", "lat"="latCo"))
 df <- merge(df, locationCountryCoordinates)
 ```
 
