@@ -28,21 +28,37 @@ library(stringi)
 if (!"ggmap" %in% installed.packages()) install.packages("ggmap")
 library(ggmap)
 
-locationsFileName <- "locations_lon_lat.csv"
+locationsCountryFileName <- "locations_country_lon_lat.csv"
 
-if (file.exists(locationsFileName)){
-  locationCoordinates <- read.csv(locationsFileName)
+if (file.exists(locationsCountryFileName)){
+  locationCountryCoordinates <- read.csv(locationsCountryFileName)
 } else {
   destinationCountries <- unique(as.character(df$COUNTRY))
-  locationCoordinates <- geocode(destinationCountries)
-  locationCoordinates$COUNTRY <- destinationCountries
-  write.csv(locationCoordinates, locationsFileName)
+  locationCountryCoordinates <- geocode(destinationCountries)
+  locationCountryCoordinates$COUNTRY <- destinationCountryCountries
+  locationCountryCoordinates$X <- NULL
+  write.csv(locationCountryCoordinates, locationsCountryFileName)
 }
 
-df <- merge(df, locationCoordinates)
+locationsCityFileName <- "locations_cities_lon_lat.csv"
+
+if (file.exists(locationsCityFileName)){
+  locationCityCoordinates <- read.csv(locationsCityFileName)
+} else {
+  destinationCities <- unique(as.character(df$DESTINATION))
+  locationCityCoordinates <- geocode(destinationCities)
+  locationCityCoordinates$DESTINATION <- destinationCities
+  locationCityCoordinates$X <- NULL
+  write.csv(locationCityCoordinates, locationsCityFileName)
+}
+
+df <- merge(df, locationCityCoordinates)
+df <- merge(df, locationCountryCoordinates)
 ```
 
 Then display a world map using the [Mollweide projection](https://en.wikipedia.org/wiki/Mollweide_projection). This projection is used because it emphasizes the accuracy of relative sizes of land and sea parts. The method used here is based on the example and polygon of [Bob Rudis](http://stackoverflow.com/a/27901570/5360901). For the animation we used the [gganimate](https://www.ggplot2-exts.org/gganimate.html) package by David Robinson. 
+
+Because we were working on Windows, setting up ffmepeg and imagemagick required a little effort. With imagemagick 
 
 
 ```{r staticWorldMap}
@@ -86,19 +102,47 @@ gg <- gg + coord_map("mollweide")
 # make the plot pretty
 gg <- gg + theme_bw()
 gg <- gg + labs(x=NULL, y=NULL)
-gg <- gg + theme(panel.grid=element_blank())
-gg <- gg + theme(legend.position="none", panel.border=element_blank())
-gg <- gg + theme(axis.ticks=element_blank())
-gg <- gg + theme(axis.text=element_blank())
-gg_animate(gg, saver = "mp4") #, filename="cargo_weight.gif")
+gg <- gg + theme(panel.grid=element_blank(),
+                 legend.position="none", panel.border=element_blank(),
+                 axis.ticks=element_blank(),
+                 axis.text=element_blank())
+gg_animate(gg, interval = 0.2, saver = "mp4", filename = "cargo_weights.mp4") #, filename="cargo_weight.gif")
 
 ```
 
 
+```{r}
+library(ggmap)
+library(mapproj)
+
+df2 <- aggregate(CARGO.WEIGHT ~ COUNTRY, df, mean)
+df2 <- merge(df2, locationCoordinates)
+df2$normCARGO.WEIGHT <- (df2$CARGO.WEIGHT-min(df2$CARGO.WEIGHT))/(max(df2$CARGO.WEIGHT)-min(df2$CARGO.WEIGHT))
+
+map <- get_map(location = 'Europe', zoom = 4)
+
+gg <- ggmap(map)
+# then let people populate the Earth
+gg <- gg + geom_raster(data = df2, 
+                 aes(x = lon, y = lat, fill = normCARGO.WEIGHT, alpha = normCARGO.WEIGHT), size = 0.01, 
+                 bins = 10) + scale_fill_gradient(low = "green", high = "red") + 
+  scale_alpha(range = c(0, 1), guide = FALSE)
+gg <- gg + theme_bw() 
+gg <- gg + labs(x=NULL, y=NULL)
+gg <- gg + theme(panel.grid=element_blank(),
+                 legend.position="none", panel.border=element_blank(),
+                 axis.ticks=element_blank(),
+                 axis.text=element_blank())
+print(gg)
+```
 
 
 http://stackoverflow.com/questions/37329433/how-to-build-simple-google-chart-in-shiny
 
 https://trinkerrstuff.wordpress.com/2013/05/11/animations-understood-5/
 
+
+```{r}
+
+```
 
