@@ -31,12 +31,11 @@ library(ggmap)
 locationsCountryFileName <- "locations_country_lon_lat.csv"
 
 if (file.exists(locationsCountryFileName)){
-  locationCountryCoordinates <- read.csv(locationsCountryFileName)
+  locationCountryCoordinates <- read.csv(locationsCountryFileName, header = TRUE)
 } else {
   destinationCountries <- unique(as.character(df$COUNTRY))
   locationCountryCoordinates <- geocode(destinationCountries)
   locationCountryCoordinates$COUNTRY <- destinationCountries
-  locationCountryCoordinates$X <- NULL
   write.csv(locationCountryCoordinates, locationsCountryFileName)
 }
 
@@ -48,12 +47,16 @@ if (file.exists(locationsCityFileName)){
   destinationCities <- unique(as.character(df$DESTINATION))
   locationCityCoordinates <- geocode(destinationCities)
   locationCityCoordinates$DESTINATION <- destinationCities
-  locationCityCoordinates$X <- NULL
   write.csv(locationCityCoordinates, locationsCityFileName)
 }
 
-df <- merge(df, locationCityCoordinates)
 library(plyr)
+  
+locationCountryCoordinates$X <- NULL
+locationCityCoordinates$X <- NULL
+
+locationCityCoordinates <- rename(locationCityCoordinates, c("lon"="lonCi", "lat"="latCi"))
+df <- merge(df, locationCityCoordinates)
 locationCountryCoordinates <- rename(locationCountryCoordinates, c("lon"="lonCo", "lat"="latCo"))
 df <- merge(df, locationCountryCoordinates)
 ```
@@ -108,7 +111,7 @@ gg <- gg + theme(panel.grid=element_blank(),
                  legend.position="none", panel.border=element_blank(),
                  axis.ticks=element_blank(),
                  axis.text=element_blank())
-gg_animate(gg, interval = 0.2, saver = "mp4", filename = "cargo_weights.mp4") #, filename="cargo_weight.gif")
+#gg_animate(gg, interval = 0.2, saver = "mp4", filename = "cargo_weights.mp4") #, filename="cargo_weight.gif")
 
 ```
 
@@ -117,19 +120,21 @@ gg_animate(gg, interval = 0.2, saver = "mp4", filename = "cargo_weights.mp4") #,
 library(ggmap)
 library(mapproj)
 
-df2 <- aggregate(CARGO.WEIGHT ~ COUNTRY, df, mean)
-df2 <- merge(df2, locationCoordinates)
-df2$normCARGO.WEIGHT <- (df2$CARGO.WEIGHT-min(df2$CARGO.WEIGHT))/(max(df2$CARGO.WEIGHT)-min(df2$CARGO.WEIGHT))
 
-map <- get_map(location = 'Europe', zoom = 4)
+df2 <- aggregate(CARGO.WEIGHT ~ DESTINATION + FLIGH.DIRECTION, df, sum)
+df2[df2$FLIGH.DIRECTION == "Incoming","CARGO.WEIGHT"] <- df2[df2$FLIGH.DIRECTION == "Incoming","CARGO.WEIGHT"] *-1
+df2 <- aggregate(CARGO.WEIGHT ~ DESTINATION, df2, sum)
+df2[df2$CARGO.WEIGHT == 0, "CARGO.WEIGHT"] <- NA
+
+df2 <- merge(df2, locationCityCoordinates)
+df2$normCARGO.WEIGHT <- (df2$CARGO.WEIGHT-min(df2$CARGO.WEIGHT, na.rm = TRUE))/(max(df2$CARGO.WEIGHT, na.rm = TRUE)-min(df2$CARGO.WEIGHT, na.rm = TRUE))
+
+map <- get_map(location = 'Serbia', zoom = 4, maptype = "terrain")
 
 gg <- ggmap(map)
-# then let people populate the Earth
-gg <- gg + geom_raster(data = df2, 
-                 aes(x = lon, y = lat, fill = normCARGO.WEIGHT, alpha = normCARGO.WEIGHT), size = 0.01, 
-                 bins = 10) + scale_fill_gradient(low = "green", high = "red") + 
-  scale_alpha(range = c(0, 1), guide = FALSE)
-gg <- gg + theme_bw() 
+gg <- gg + geom_point(data = df2, 
+                 aes(x = lonCi, y = latCi, size = abs(CARGO.WEIGHT)^2, color = CARGO.WEIGHT), alpha = 0.9) 
+gg <- gg + theme_bw() + scale_colour_gradient(low = "blue", high = "red")
 gg <- gg + labs(x=NULL, y=NULL)
 gg <- gg + theme(panel.grid=element_blank(),
                  legend.position="none", panel.border=element_blank(),
@@ -139,12 +144,71 @@ print(gg)
 ```
 
 
+```{r}
+library(ggmap)
+library(mapproj)
+
+
+df2 <- aggregate(NBR.OF.PASSENGERS ~ DESTINATION + FLIGH.DIRECTION, df, sum)
+df2[df2$FLIGH.DIRECTION == "Incoming","NBR.OF.PASSENGERS"] <- df2[df2$FLIGH.DIRECTION == "Incoming","NBR.OF.PASSENGERS"] *-1
+df2 <- aggregate(NBR.OF.PASSENGERS ~ DESTINATION, df2, sum)
+df2[df2$NBR.OF.PASSENGERS == 0, "NBR.OF.PASSENGERS"] <- NA
+
+df2 <- merge(df2, locationCityCoordinates)
+df2$normNBR.OF.PASSENGERS <- (df2$NBR.OF.PASSENGERS-min(df2$NBR.OF.PASSENGERS, na.rm = TRUE))/(max(df2$NBR.OF.PASSENGERS, na.rm = TRUE)-min(df2$NBR.OF.PASSENGERS, na.rm = TRUE))
+
+map <- get_map(location = 'Serbia', zoom = 4, maptype = "roadmap")
+
+gg <- ggmap(map)
+gg <- gg + geom_point(data = df2, 
+                 aes(x = lonCi, y = latCi, size = abs(NBR.OF.PASSENGERS), color = NBR.OF.PASSENGERS^3), alpha = 0.8) 
+gg <- gg + theme_bw() + scale_colour_gradient(low = "blue", high = "red")
+gg <- gg + labs(x=NULL, y=NULL)
+gg <- gg + theme(panel.grid=element_blank(),
+                 legend.position="none", panel.border=element_blank(),
+                 axis.ticks=element_blank(),
+                 axis.text=element_blank())
+print(gg)
+```
+
+
+```{r}
+#devtools::install_github("ropensci/plotly")
+library(plotly)
+
+df2$hover <- with(df2, paste("Destination: ", DESTINATION))
+df2$absNBR.OF.PASSENGERS <- abs(df2$NBR.OF.PASSENGERS) / 5000
+
+# marker styling
+m <- list(
+  colorbar = list(title = "Number of passengers"),
+  size = ~absNBR.OF.PASSENGERS, opacity = 0.8, symbol = 'sphere'
+)
+
+# geo styling
+g <- list(
+  scope = 'europe',
+  projection = list(type = 'albers europe'),
+  showland = TRUE,
+  landcolor = toRGB("gray65"),
+  subunitcolor = toRGB("gray85"),
+  countrycolor = toRGB("gray85"),
+  countrywidth = 0.5,
+  subunitwidth = 0.5
+)
+
+jet <- c("#00007F", "blue", "#007FFF", "cyan", "#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000")
+
+plot_ly(df2, lat = ~latCi, lon = ~lonCi, text = ~hover, color = ~NBR.OF.PASSENGERS,
+        type = 'scattergeo', locationmode = 'Europe', mode = 'markers', 
+        colors = jet,
+        marker = m) %>%
+  layout(title = 'Where passengers flow from BUD airport', geo = ~g)
+```
+
+
 http://stackoverflow.com/questions/37329433/how-to-build-simple-google-chart-in-shiny
 
 https://trinkerrstuff.wordpress.com/2013/05/11/animations-understood-5/
 
-
-```{r}
-
-```
 
