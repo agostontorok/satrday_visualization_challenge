@@ -5,7 +5,7 @@ date: '2016 augusztus 18 '
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r setup, tidy = TRUE,  include=FALSE}
 #install.packages(pkgs="gdata")
 options(java.parameters = "-Xmx4000m")
 if (!"xlsx" %in% installed.packages()) install.packages("xlsx")
@@ -19,15 +19,48 @@ if (file.exists("BUD flights 2007-2012.csv")){
                                                               rep("character", 3),
                                                               rep("numeric", 4)))
 } else {
-  df <- read.xlsx2("BUD flights 2007-2012.xlsx", sheetIndex = 1,
+  recodeR <- function(data, oldvalue, newvalue) {
+      # create the return vector
+      oldvalue <- c(as.character(oldvalue))
+      newvalue <- c(as.character(newvalue))
+      data <- c(as.character(data))
+      newvec <- data
+      # put recoded values into the correct position in the return vector
+      for (i in unique(oldvalue)) newvec[data == i] <- newvalue[oldvalue == i]
+      newvec
+  }
+  
+  
+  # read the Hungarian version because the English was messed up
+  df <- read.xlsx2("BUD flights 2007-2012.xlsx", sheetIndex = 2,
                    colClasses = c(rep("character", 7),
-                                  "Date",
-                                  "numeric",
-                                  rep("character", 3),
-                                  rep("numeric", 4)))
+                                    "Date",
+                                    "numeric",
+                                    rep("character", 3),
+                                    rep("numeric", 4)), 
+                   encoding="UTF-8")
+  colNamesDict <- read.xlsx("BUD flights 2007-2012.xlsx", sheetIndex = 3, encoding="UTF-8")
+  destinationDict <- read.xlsx("BUD flights 2007-2012.xlsx", sheetIndex = 4, encoding="UTF-8")
+  countryDict <- read.xlsx("BUD flights 2007-2012.xlsx", sheetIndex = 7, encoding="UTF-8")
+  colNamesDict$English <- gsub(" ",".",colNamesDict$English)
+  colnames(df) <- recodeR(colnames(df),colNamesDict$Hungarian, colNamesDict$English)
+  df$COMMERCIAL.FLAG <- recodeR(df$COMMERCIAL.FLAG,colNamesDict$Hungarian, colNamesDict$English)
+  df$FLIGH.DIRECTION <- recodeR(df$FLIGH.DIRECTION,colNamesDict$Hungarian, colNamesDict$English)
+  df$FLIGHT.TYPE <- recodeR(df$FLIGHT.TYPE,colNamesDict$Hungarian, colNamesDict$English)
+  df$DESTINATION <- recodeR(df$DESTINATION, destinationDict$Hujngarian, destinationDict$English)
+  df$COUNTRY <- recodeR(df$COUNTRY, countryDict$Hungarian, countryDict$English)
+  
   write.csv(df, "BUD flights 2007-2012.csv", row.names=FALSE)
 }
 ```
+
+
+```{r}
+# https://susanejohnston.wordpress.com/2012/10/01/find-and-replace-in-r-part-2-how-to-recode-many-values-simultaneously/
+
+
+```
+
 
 ## Map Creation
 
@@ -130,28 +163,38 @@ gg <- gg + theme(panel.grid=element_blank(),
 library(ggmap)
 library(mapproj)
 
-
 df2 <- aggregate(CARGO.WEIGHT ~ DESTINATION + FLIGH.DIRECTION, df, sum)
-df2[df2$FLIGH.DIRECTION == "Incoming","CARGO.WEIGHT"] <- df2[df2$FLIGH.DIRECTION == "Incoming","CARGO.WEIGHT"] *-1
-df2 <- aggregate(CARGO.WEIGHT ~ DESTINATION, df2, sum)
-df2[df2$CARGO.WEIGHT == 0, "CARGO.WEIGHT"] <- NA
+df2$colorCARGO.WEIGHT <- df2$CARGO.WEIGHT # this going to be the colour of the markers
+df2$sizeCARGO.WEIGHT <- df2$CARGO.WEIGHT  # this is going to be the size of the markers
+
+df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] <- df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] *-1
+
+df2 <- aggregate(. ~ DESTINATION, df2[ ,c(1,4:5)], sum)
+df2 <- df2[df2$sizeCARGO.WEIGHT > 0, ] 
 
 df2 <- merge(df2, locationCityCoordinates)
-df2$normCARGO.WEIGHT <- (df2$CARGO.WEIGHT-min(df2$CARGO.WEIGHT, na.rm = TRUE))/(max(df2$CARGO.WEIGHT, na.rm = TRUE)-min(df2$CARGO.WEIGHT, na.rm = TRUE))
 
 map <- get_map(location = 'Serbia', zoom = 4, maptype = "terrain")
 
 gg <- ggmap(map)
 gg <- gg + geom_point(data = df2, 
-                 aes(x = lonCi, y = latCi, size = abs(CARGO.WEIGHT)^2, color = CARGO.WEIGHT), alpha = 0.9) 
-gg <- gg + theme_bw() + scale_colour_gradient(low = "blue", high = "red")
-gg <- gg + labs(x=NULL, y=NULL)
+                 aes(x = lonCi, y = latCi, 
+                     size = sizeCARGO.WEIGHT, color = colorCARGO.WEIGHT), 
+                 alpha = 0.9)
+gg <- gg + geom_text(data = df2, 
+                 aes(label = DESTINATION, x = lonCi, y = latCi, 
+                     size = sizeCARGO.WEIGHT, color = colorCARGO.WEIGHT), 
+                 alpha = 0.9, hjust = 1.1, vjust = 1) 
+gg <- gg + theme_bw() + scale_colour_gradient(low = "blue", high = "red",
+                                              guide = guide_colourbar(title = "Difference"))
+gg <- gg + labs(x=NULL, y=NULL, size='Cargo weight' )
 gg <- gg + theme(panel.grid=element_blank(),
-                 legend.position="none", panel.border=element_blank(),
+                 panel.border=element_blank(),
                  axis.ticks=element_blank(),
                  axis.text=element_blank())
 print(gg)
 ```
+
 
 
 ```{r}
@@ -160,60 +203,80 @@ library(mapproj)
 
 
 df2 <- aggregate(NBR.OF.PASSENGERS ~ DESTINATION + FLIGH.DIRECTION, df, sum)
-df2[df2$FLIGH.DIRECTION == "Incoming","NBR.OF.PASSENGERS"] <- df2[df2$FLIGH.DIRECTION == "Incoming","NBR.OF.PASSENGERS"] *-1
-df2 <- aggregate(NBR.OF.PASSENGERS ~ DESTINATION, df2, sum)
-df2[df2$NBR.OF.PASSENGERS == 0, "NBR.OF.PASSENGERS"] <- NA
+df2$colorNBR.OF.PASSENGERS <- df2$NBR.OF.PASSENGERS # this going to be the colour of the markers
+df2$sizeNBR.OF.PASSENGERS <- df2$NBR.OF.PASSENGERS  # this is going to be the size of the markers
+
+df2[df2$FLIGH.DIRECTION == "Incoming","colorNBR.OF.PASSENGERS"] <- df2[df2$FLIGH.DIRECTION == "Incoming","colorNBR.OF.PASSENGERS"] *-1
+
+df2 <- aggregate(. ~ DESTINATION, df2[ ,c(1,4:5)], sum)
+df2 <- df2[df2$sizeNBR.OF.PASSENGERS > 0, ] 
 
 df2 <- merge(df2, locationCityCoordinates)
-df2$normNBR.OF.PASSENGERS <- (df2$NBR.OF.PASSENGERS-min(df2$NBR.OF.PASSENGERS, na.rm = TRUE))/(max(df2$NBR.OF.PASSENGERS, na.rm = TRUE)-min(df2$NBR.OF.PASSENGERS, na.rm = TRUE))
 
 map <- get_map(location = 'Serbia', zoom = 4, maptype = "roadmap")
 
 gg <- ggmap(map)
 gg <- gg + geom_point(data = df2, 
-                 aes(x = lonCi, y = latCi, size = abs(NBR.OF.PASSENGERS), color = NBR.OF.PASSENGERS^3), alpha = 0.8) 
-gg <- gg + theme_bw() + scale_colour_gradient(low = "blue", high = "red")
-gg <- gg + labs(x=NULL, y=NULL)
+                 aes(x = lonCi, y = latCi, size = sizeNBR.OF.PASSENGERS, 
+                     fill = colorNBR.OF.PASSENGERS) , colour="black", pch=21) 
+gg <- gg + theme_bw() + scale_fill_gradient2(low = "blue", mid = "white", high = "red", guide = "colorbar")
+gg <- gg + labs(x=NULL, y=NULL) 
 gg <- gg + theme(panel.grid=element_blank(),
-                 legend.position="none", panel.border=element_blank(),
+                 #legend.position="none", 
+                 panel.border=element_blank(),
                  axis.ticks=element_blank(),
                  axis.text=element_blank())
 print(gg)
 ```
 
+This looks very interesting, however there are a lot of destinations. Giving text annotations for all of them would make the graph crowded, so we choosed an interactive visualization instead. [Plotly](https://plot.ly/) recently made available its mapping toolkit along with the offline version of their D3.js based plotting solution. We used jet colormap to display the difference between incoming and outgoing passenger numbers to a given airport. The size of the markers is proportionate to the sum passengers in that direction. The plot is zoomable & hoverable, this way even the smaller airports can be seen well. 
 
 ```{r}
 #devtools::install_github("ropensci/plotly")
 library(plotly)
 
 df2$hover <- with(df2, paste("Destination: ", DESTINATION))
-df2$absNBR.OF.PASSENGERS <- abs(df2$NBR.OF.PASSENGERS) / 5000
+df2$scaled_sizeNBR.OF.PASSENGERS <- df2$sizeNBR.OF.PASSENGERS / 30000
+df2$Difference <- df2$colorNBR.OF.PASSENGERS
 
 # marker styling
 m <- list(
-  colorbar = list(title = "Number of passengers"),
-  size = ~absNBR.OF.PASSENGERS, opacity = 0.8, symbol = 'sphere'
+  colorbar = list(title = "Millions USD"),
+  size = ~scaled_sizeNBR.OF.PASSENGERS, 
+  opacity = 0.8, 
+  symbol = 'circle'
+)
+
+# color of markers
+jet <- c("#00007F", "blue", "#007FFF", "cyan", "#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000")
+
+# axis styling
+ax <- list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
 )
 
 # geo styling
 g <- list(
-  scope = 'europe',
+  scope = 'world',
   projection = list(type = 'albers europe'),
   showland = TRUE,
+  lonaxis = list(range = c(-20,50)),
+  lataxis = list(range = c(20,70)),
   landcolor = toRGB("gray65"),
-  subunitcolor = toRGB("gray85"),
-  countrycolor = toRGB("gray85"),
-  countrywidth = 0.5,
-  subunitwidth = 0.5
+  subunitcolor = toRGB("white"),
+  countrycolor = toRGB("white"),
+  countrywidth = 1,
+  subunitwidth = 1
 )
 
-jet <- c("#00007F", "blue", "#007FFF", "cyan", "#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000")
-
-plot_ly(df2, lat = ~latCi, lon = ~lonCi, text = ~hover, color = ~NBR.OF.PASSENGERS,
-        type = 'scattergeo', locationmode = 'Europe', mode = 'markers', 
-        colors = jet,
-        marker = m) %>%
-  layout(title = 'Where passengers flow from BUD airport', geo = ~g)
+plot_ly(df2, lat = ~latCi, lon = ~lonCi, text = ~hover, color = ~Difference,
+        type = 'scattergeo', locationmode = 'country names', mode = 'markers',
+        colors = jet, marker = m) %>% 
+  layout(title = 'Incoming/outgoing passengers of Liszt Ferenc Airport', geo = g, xaxis = ax, yaxis = ax)
 ```
 
 
