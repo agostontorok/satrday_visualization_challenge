@@ -11,12 +11,22 @@ options(java.parameters = "-Xmx4000m")
 if (!"xlsx" %in% installed.packages()) install.packages("xlsx")
 library("xlsx")
 
-df <- read.xlsx2("BUD flights 2007-2012.xlsx", sheetIndex = 1,
-                 colClasses = c(rep("character", 7),
-                                "Date",
-                                "numeric",
-                                rep("character", 3),
-                                rep("numeric", 4)))
+
+if (file.exists("BUD flights 2007-2012.csv")){
+  df <- read.csv("BUD flights 2007-2012.csv", colClasses = c(rep("character", 7),
+                                                              "Date",
+                                                              "numeric",
+                                                              rep("character", 3),
+                                                              rep("numeric", 4)))
+} else {
+  df <- read.xlsx2("BUD flights 2007-2012.xlsx", sheetIndex = 1,
+                   colClasses = c(rep("character", 7),
+                                  "Date",
+                                  "numeric",
+                                  rep("character", 3),
+                                  rep("numeric", 4)))
+  write.csv(df, "BUD flights 2007-2012.csv", row.names=FALSE)
+}
 ```
 
 ## Map Creation
