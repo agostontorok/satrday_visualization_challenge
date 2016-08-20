@@ -106,7 +106,7 @@ df <- merge(df, locationCountryCoordinates)
 
 Then display a world map using the [Mollweide projection](https://en.wikipedia.org/wiki/Mollweide_projection). This projection is used because it emphasizes the accuracy of relative sizes of land and sea parts. The method used here is based on the example and polygon of [Bob Rudis](http://stackoverflow.com/a/27901570/5360901). For the animation we used the [gganimate](https://www.ggplot2-exts.org/gganimate.html) package by David Robinson. 
 
-Because we were working on Windows, setting up ffmepeg and imagemagick required a little effort. With imagemagick 
+Because we were working on Windows, setting up ffmepeg and imagemagick required a little effort. With imagemagick you are better installing it under C:\ immediatelly to avoid "space" problems in the path. ffmpeg needs to be added to the path, it does not add itself by default.
 
 
 ```{r staticWorldMap}
@@ -159,41 +159,7 @@ gg <- gg + theme(panel.grid=element_blank(),
 ```
 
 
-```{r}
-library(ggmap)
-library(mapproj)
 
-df2 <- aggregate(CARGO.WEIGHT ~ DESTINATION + FLIGH.DIRECTION, df, sum)
-df2$colorCARGO.WEIGHT <- df2$CARGO.WEIGHT # this going to be the colour of the markers
-df2$sizeCARGO.WEIGHT <- df2$CARGO.WEIGHT  # this is going to be the size of the markers
-
-df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] <- df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] *-1
-
-df2 <- aggregate(. ~ DESTINATION, df2[ ,c(1,4:5)], sum)
-df2 <- df2[df2$sizeCARGO.WEIGHT > 0, ] 
-
-df2 <- merge(df2, locationCityCoordinates)
-
-map <- get_map(location = 'Serbia', zoom = 4, maptype = "terrain")
-
-gg <- ggmap(map)
-gg <- gg + geom_point(data = df2, 
-                 aes(x = lonCi, y = latCi, 
-                     size = sizeCARGO.WEIGHT, color = colorCARGO.WEIGHT), 
-                 alpha = 0.9)
-gg <- gg + geom_text(data = df2, 
-                 aes(label = DESTINATION, x = lonCi, y = latCi, 
-                     size = sizeCARGO.WEIGHT, color = colorCARGO.WEIGHT), 
-                 alpha = 0.9, hjust = 1.1, vjust = 1) 
-gg <- gg + theme_bw() + scale_colour_gradient(low = "blue", high = "red",
-                                              guide = guide_colourbar(title = "Difference"))
-gg <- gg + labs(x=NULL, y=NULL, size='Cargo weight' )
-gg <- gg + theme(panel.grid=element_blank(),
-                 panel.border=element_blank(),
-                 axis.ticks=element_blank(),
-                 axis.text=element_blank())
-print(gg)
-```
 
 
 
@@ -284,4 +250,36 @@ http://stackoverflow.com/questions/37329433/how-to-build-simple-google-chart-in-
 
 https://trinkerrstuff.wordpress.com/2013/05/11/animations-understood-5/
 
+```{r}
+library(ggmap)
+library(mapproj)
+library(plotly)
 
+df2 <- aggregate(CARGO.WEIGHT ~ DESTINATION + FLIGH.DIRECTION, df, sum)
+df2$sizeCARGO.WEIGHT <- df2$CARGO.WEIGHT  # this is going to be the size of the markers
+df2$colorCARGO.WEIGHT <- df2$CARGO.WEIGHT # this going to be the colour of the markers
+
+df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] <- df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] *-1
+
+df2 <- aggregate(. ~ DESTINATION, df2[ ,c(1,4:5)], sum)
+df2 <- df2[df2$sizeCARGO.WEIGHT > 0, ] 
+df2$colorCARGO.WEIGHT <- round(df2$colorCARGO.WEIGHT / df2$sizeCARGO.WEIGHT *100)
+
+  
+df2 <- merge(df2, locationCityCoordinates)
+
+gg <- ggplot(world.cities, aes(long, lat)) +
+  borders(regions = ".", fill = "grey90") 
+gg <- gg + geom_point(data = df2, 
+                 aes(x = lonCi, y = latCi, text=paste(DESTINATION,"<br>All cargo:",sizeCARGO.WEIGHT, "<br>Export - Import:", colorCARGO.WEIGHT),
+                     size = sizeCARGO.WEIGHT, color = colorCARGO.WEIGHT), 
+                 alpha = 0.9)
+gg <- gg + theme_bw() + scale_colour_gradient(low = "blue", high = "red",
+                                              guide = guide_colourbar(title = "Difference"))
+gg <- gg + labs(x=NULL, y=NULL, size='Cargo weight' )
+gg <- gg + theme(panel.grid=element_blank(),
+                 panel.border=element_blank(),
+                 axis.ticks=element_blank(),
+                 axis.text=element_blank())
+ggplotly(tooltip = c("text"))
+```
