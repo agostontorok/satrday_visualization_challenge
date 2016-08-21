@@ -5,7 +5,27 @@ date: '2016 augusztus 18 '
 output: html_document
 ---
 
+* format fonts (same as the Oldenborg one)
+* format picture sizes
+* tidy code everywhere
+
+Flow: 
+- First we were interested in where goods travel from/to Budapest
+- A lof of places are visible in the interactive plot, however it is possible that they have a time dynamic
+- Indeed the animation shows time dynamics
+- Let's see how people use the airport
+- It seems that people from BUD mostly travel intracontinentally, however we don't see all these places in the small map, so let's use a scrollable plotly map
+- Good, but wait! this must have a dynamic too, and this could be even more interesting since we are aware of a lot of things that could have affected the travelling mood e.g. budget companies, financial crisis, MALÉV crisis etc. 
+- Let's see how the general trend (.. because we are talking baout general trend we need to get rid of the seasonal effects) changed over the months in the load of the airport and in the load of the planes. Bamm WOW
+
 todo add pacman
+
+```{r}
+if (!"pacman" %in% installed.packages()) install.packages("pacman")
+pacman::p_load(devtools, xlsx)
+```
+
+
 
 ```{r setup, tidy = TRUE,  include=FALSE}
 #install.packages(pkgs="gdata")
@@ -176,9 +196,7 @@ if (!file.exists("cargo_weights.gif")) {
 ```
 
 http://relevantmisc.com/ggplot/instagram/2016/02/14/ig-over-time/
-
-
-
+http://2.bp.blogspot.com/-pogyMKoowkc/VSU7kXa2paI/AAAAAAAAFOM/dyb9WWBscmk/s1600/mapproj_cheatsheet.png
 
 ```{r}
 library(ggmap)
@@ -276,7 +294,7 @@ df2 <- aggregate(CARGO.WEIGHT ~ DESTINATION + FLIGH.DIRECTION, df, sum)
 df2$sizeCARGO.WEIGHT <- df2$CARGO.WEIGHT  # this is going to be the size of the markers
 df2$colorCARGO.WEIGHT <- df2$CARGO.WEIGHT # this going to be the colour of the markers
 
-df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] <- df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] *-1
+df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] <- 0
 
 df2 <- aggregate(. ~ DESTINATION, df2[ ,c(1,4:5)], sum)
 df2 <- df2[df2$sizeCARGO.WEIGHT > 0, ] 
@@ -291,63 +309,87 @@ gg <- gg + geom_point(data = df2,
                  aes(x = lonCi, y = latCi, text=paste(DESTINATION,"<br>All cargo:",sizeCARGO.WEIGHT, "<br>Export - Import:", colorCARGO.WEIGHT),
                      size = sizeCARGO.WEIGHT, color = colorCARGO.WEIGHT), 
                  alpha = 0.9)
-gg <- gg + theme_bw() + scale_colour_gradient(low = "blue", high = "red",
-                                              guide = guide_colourbar(title = "Difference"))
+gg <- gg + scale_colour_gradient(low = "blue", high = "red",
+                                              guide = guide_colourbar(title = "% of Export",
+                                                                      title.position = "top",
+                                                                      direction = "horizontal", 
+                                                                      label = FALSE))
 gg <- gg + labs(x=NULL, y=NULL, size='Cargo weight' )
-gg <- gg + theme(panel.grid=element_blank(),
-                 panel.border=element_blank(),
-                 axis.ticks=element_blank(),
-                 axis.text=element_blank())
+gg <- gg + theme_map()
 ggplotly(tooltip = c("text"))
 ```
 
+
 ```{r}
-a<-aggregate(NBR.OF.FLIGHTS~DATE, df, sum)
-#a<-a[order(-a$NBR.OF.FLIGHTS), ]
-flights <- ts(a$NBR.OF.FLIGHTS, start=c(2007, 1), end=c(2012, 6), frequency=12) 
-plot(flights)
-#decomposition to get the trend component
-fit <- stl(flights, s.window="period")
-plot(fit)
-#extract the components
-tr<-fit$time.series
-tr<-as.data.frame(tr)
-#bind the year and the components
-tr<-cbind(a, tr)
-#let us see the trend component
-line<-ggplot(tr, aes(DATE, trend))+
-  geom_line(size=1)+ theme_bw() + 
-  scale_y_continuous(name="Trend component")
-line
-#rescaling the y axis to percentages
-tr$trend<-tr$trend/max(tr$trend)*100
-library(dplyr)
-tr<-rename(tr, Nbr_of_flights=trend)
+df$plane_load <-df$NBR.OF.PASSENGERS/df$SEAT.CAPACITY
+loads <- cbind(aggregate(plane_load ~ DATE, df, mean), # load of an average plane
+                    aggregate(NBR.OF.FLIGHTS ~ DATE, df, sum)) # load of the airport in the given interval
+
+airportLoad <- ts(loads$NBR.OF.FLIGHTS, start = c(2007, 1), end = c(2012, 6), frequency = 12) 
+airplaneLoad <- ts(loads$plane_load, start = c(2007, 1), end = c(2012, 6), frequency = 12) 
+
+#time-series decomposition to get the trend component
+times <- sort(unique(df$DATE))
+airportLoadComps <- stl(airportLoad, s.window = "period")$time.series
+airportLoadComps <- as.data.frame(airportLoadComps)
+colnames(airportLoadComps) <- paste(colnames(airportLoadComps), "Airport", sep = "")
+airportLoadComps$DATE <- times
+airplaneLoadComps <- stl(airplaneLoad, s.window = "period")$time.series
+airplaneLoadComps <- as.data.frame(airplaneLoadComps)
+colnames(airplaneLoadComps) <- paste(colnames(airplaneLoadComps), "Airplane", sep = "")
+airplaneLoadComps$DATE <- times
+
+loads <- merge(airplaneLoadComps, airportLoadComps)
+
+loads[ ,2:7] <- loads[ ,2:7] - sapply(sapply(loads[1:10,2:7], mean), rep, 66) # baseline correction
+
+file.rename("eZ76jcu.png", "Generic_turbofan_airplane.png")
+img <- rasterGrob(readPNG("Generic_turbofan_airplane.png"), 0, 0, 1, 1, just=c("left","bottom"))
+ggplot(data.frame(x=c(0, 1), y=c(0, 1)), aes(x=x, y=y)) + 
+    geom_point() +
+    annotation_custom(img, 0, 1, 0, 1) + 
+    scale_x_continuous(breaks=seq(0, 1, by=.05))+ 
+    scale_y_continuous(breaks=seq(0, 1, by=.05)) + theme_bw() +
+    theme(axis.text.x=element_text(angle = 90, hjust = 0, vjust=0))
 
 
-#load
-df$load<-df$NBR.OF.PASSENGERS/df$SEAT.CAPACITY
-cap<-aggregate(load~DATE, df, mean)
-myts <- ts(cap$load, start=c(2007, 1), end=c(2012, 6), frequency=12) 
-plot(myts)
-fit <- stl(myts, s.window="period")
-plot(fit)
-ts<-fit$time.series
-ts<-as.data.frame(ts)
-ts<-cbind(cap, ts)
-ts$trend<-ts$trend/max(ts$trend)*100
-ts<-rename(ts,Load=trend)
+library(qdap)
+library(png)
+library(grid)
 
-#now that they both have their common y axis
-common<-merge(ts,tr, by="DATE")
-common$load<-NULL
-common$NBR.OF.FLIGHTS<-NULL
-trends<-select(common, DATE, Nbr_of_flights, Load )
-library(reshape2)
-com_melted<-melt(trends, id="DATE")
-line<-ggplot(com_melted, aes(DATE, value, color=variable))+
-  geom_line(size=1) + 
-  theme_bw()+
-  scale_y_continuous(name="Trend component (%)")
-line
+url_dl(url="https://d13yacurqjgara.cloudfront.net/users/618902/screenshots/1653451/building_changi-01_1x.png")
+airport_img <- readPNG("building_changi-01_1x.png")
+airport <- rasterGrob(airport_img)
+url_dl(url="http://92.48.119.71/wp-content/uploads/2015/09/Airplane-Icon.png")
+airplane_img <- readPNG("Airplane-Icon.png")
+airplane <- rasterGrob(airplane_img)
+
+qplot(1:10, 1:10, geom="blank") +
+  annotation_custom(airport, xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf) +
+  geom_point()
+
+last_point = dim(loads)[1]
+
+library(ggthemes)
+ggplot(data=loads, aes(x=DATE)) +
+  geom_line(aes(y=scale(trendAirplane, center = FALSE)), size=1, color = "red") + 
+  geom_line(aes(y=scale(trendAirport, center = FALSE)), size=1, color = "blue") + 
+  annotation_custom(airport, 
+                    xmin=as.numeric(loads$DATE[last_point-10]), 
+                    xmax=as.numeric(loads$DATE[last_point]), 
+                    ymin=scale(loads$trendAirport, center = FALSE)[last_point], 
+                    ymax=scale(loads$trendAirport, center = FALSE)[last_point] + 1) +
+  annotation_custom(airplane, 
+                    xmin=as.numeric(loads$DATE[last_point-10]), 
+                    xmax=as.numeric(loads$DATE[last_point]), 
+                    ymin=scale(loads$trendAirplane, center = FALSE)[last_point] -1, 
+                    ymax=scale(loads$trendAirplane, center = FALSE)[last_point] ) +
+  geom_rangeframe() +  
+  theme_tufte() + labs(x="Time", y="Load of airport/airplane")
 ```
+
+http://svg-to-wkt.linfiniti.com/
+
+https://www.stat.auckland.ac.nz/~paul/Reports/Rlogo/Rlogo.html
+
+
