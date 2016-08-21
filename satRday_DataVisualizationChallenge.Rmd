@@ -300,3 +300,54 @@ gg <- gg + theme(panel.grid=element_blank(),
                  axis.text=element_blank())
 ggplotly(tooltip = c("text"))
 ```
+
+```{r}
+a<-aggregate(NBR.OF.FLIGHTS~DATE, df, sum)
+#a<-a[order(-a$NBR.OF.FLIGHTS), ]
+flights <- ts(a$NBR.OF.FLIGHTS, start=c(2007, 1), end=c(2012, 6), frequency=12) 
+plot(flights)
+#decomposition to get the trend component
+fit <- stl(flights, s.window="period")
+plot(fit)
+#extract the components
+tr<-fit$time.series
+tr<-as.data.frame(tr)
+#bind the year and the components
+tr<-cbind(a, tr)
+#let us see the trend component
+line<-ggplot(tr, aes(DATE, trend))+
+  geom_line(size=1)+ theme_bw() + 
+  scale_y_continuous(name="Trend component")
+line
+#rescaling the y axis to percentages
+tr$trend<-tr$trend/max(tr$trend)*100
+library(dplyr)
+tr<-rename(tr, Nbr_of_flights=trend)
+
+
+#load
+df$load<-df$NBR.OF.PASSENGERS/df$SEAT.CAPACITY
+cap<-aggregate(load~DATE, df, mean)
+myts <- ts(cap$load, start=c(2007, 1), end=c(2012, 6), frequency=12) 
+plot(myts)
+fit <- stl(myts, s.window="period")
+plot(fit)
+ts<-fit$time.series
+ts<-as.data.frame(ts)
+ts<-cbind(cap, ts)
+ts$trend<-ts$trend/max(ts$trend)*100
+ts<-rename(ts,Load=trend)
+
+#now that they both have their common y axis
+common<-merge(ts,tr, by="DATE")
+common$load<-NULL
+common$NBR.OF.FLIGHTS<-NULL
+trends<-select(common, DATE, Nbr_of_flights, Load )
+library(reshape2)
+com_melted<-melt(trends, id="DATE")
+line<-ggplot(com_melted, aes(DATE, value, color=variable))+
+  geom_line(size=1) + 
+  theme_bw()+
+  scale_y_continuous(name="Trend component (%)")
+line
+```
