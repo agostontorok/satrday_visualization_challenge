@@ -249,7 +249,7 @@ gg <- gg + theme(panel.grid=element_blank(),
 print(gg)
 ```
 
-This looks very interesting, however, there are a lot of destinations. Attaching text annotations to all of them would make the graph crowded, so we've rather opteed for an interactive visualization. [Plotly](https://plot.ly/) recently made available its mapping toolkit along with the offline version of their D3.js based plotting solution. We used jet colormap to display the difference between incoming and outgoing passenger numbers to a given airport. The size of the markers is proportionate to the sum passengers in that direction. The plot is zoomable & hoverable, this way even the smaller airports can be seen quite well. 
+This looks very interesting, however, there are a lot of destinations. Attaching text annotations to all of them would have made the graph crowded, so we've rather opted for an interactive visualization. [Plotly](https://plot.ly/) recently made available its mapping toolkit along with the offline version of their D3.js based plotting solution. We used jet colormap to display the difference between incoming and outgoing passenger numbers to a given airport. The size of the markers is proportionate to the sum passengers in that direction. The plot is zoomable & hoverable, this way even the smaller airports can be seen quite well. 
 
 ```{r, zoomable Passanger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
 df2$hover <- with(df2, paste("Destination: ", DESTINATION))
