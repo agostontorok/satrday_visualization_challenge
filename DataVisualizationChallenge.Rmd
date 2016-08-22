@@ -7,7 +7,7 @@ output:
     number_sections: yes
     theme: spacelab
     toc: yes
-    highlight: espresso
+    highlight: sunburst
 ---
 
 We love travel. We love air traffic management and data science even more. It goes without saying how excited we got when we’ve seen this challenge-who cared about the Public holiday in Hungary when we got air traffic patterns to visualize?!
@@ -17,7 +17,7 @@ We love travel. We love air traffic management and data science even more. It go
 
 First let's load all the packages needed for the script below. We use [pacman](https://cran.r-project.org/web/packages/pacman/vignettes/Introduction_to_pacman.html), a very elegant wrapper package by Tyler Rinker.  
 
-```{r initialization, tidy = TRUE, include=FALSE}
+```{r initialization, tidy = TRUE, echo=TRUE, message=FALSE}
 if (!"pacman" %in% installed.packages()) install.packages("pacman")
 pacman::p_load(devtools, xlsx, stringi, ggmap, plyr, sp, maps, rgdal, rgeos, mapproj, qdap, png, grid, ggthemes, ggplot2)
 
@@ -29,7 +29,7 @@ library(plotly)
 
 As we immediately jumped at the chance, the xlsx data file still had its mistakes. Thus, we firstly corrected those by recoding the Hungarian labels to English. Although the xlsx2 command is significantly faster than the xlsx (though requires more setup), it was still faster to use a csv for prototyping, so we generated one.
 
-```{r setup, tidy = TRUE,  include=FALSE, echo=FALSE}
+```{r setup, tidy = TRUE, echo=TRUE, message=FALSE}
 options(java.parameters = "-Xmx4000m")
 
 if (file.exists("BUD flights 2007-2012.csv")){
@@ -83,7 +83,7 @@ There are several options for spatial data visualization in R, here we are going
 First let's read the longitude and lattitude coordinates of the different countries [citation](https://www.r-bloggers.com/r-beginners-plotting-locations-on-to-a-world-map/), this is the first step and is common for all the packages we tried. We downloaded the coordinates of airports and countries as well. Of note, this can be used pretty flexible, i.e. you can download the coordinates of pretty much everything. Again, because downloading each time 500+ coordinates is rather time consuming we preserved the output in csv format for prototyping.
 
 
-```{r readLocations, echo=FALSE, tidy=TRUE, warning=FALSE, message=FALSE}
+```{r readLocations, echo=TRUE, tidy=TRUE, warning=FALSE, message=FALSE}
 locationsCountryFileName <- "locations_country_lon_lat.csv"
 
 if (file.exists(locationsCountryFileName)){
@@ -151,7 +151,7 @@ ggplotly(tooltip = c("text"))
 
 While this picture is worth a thousand words, the export/import have a time dynamic as well. Hence, an animation to create was indispensable here. Can you catch when we imported to Japan?
 
-First we were interested in the cargo flow. We displayed a world map using the [Mollweide projection](https://en.wikipedia.org/wiki/Mollweide_projection). This projection is used because it emphasizes the accuracy of relative sizes of land and sea parts. The method used here is based on the example and polygon of [Bob Rudis](http://stackoverflow.com/a/27901570/5360901). For the animation we used the [gganimate](https://www.ggplot2-exts.org/gganimate.html) package by David Robinson. 
+First we were interested in the cargo flow. We displayed a world map using the [Mollweide projection](https://en.wikipedia.org/wiki/Mollweide_projection). If you are wondering how the different map projection look like, see [here](http://2.bp.blogspot.com/-pogyMKoowkc/VSU7kXa2paI/AAAAAAAAFOM/dyb9WWBscmk/s1600/mapproj_cheatsheet.png.) This projection is used because it emphasizes the accuracy of relative sizes of land and sea parts. The method used here is based on the example and polygon of [Bob Rudis](http://stackoverflow.com/a/27901570/5360901). For the animation we used the [gganimate](https://www.ggplot2-exts.org/gganimate.html) package by David Robinson. 
 
 Because we were working on Windows, setting up ffmepeg and imagemagick required a little effort. With imagemagick you are better installing it under C:\ immediately to avoid "space" problems in the path. ffmpeg needs to be added to the path, it does not add itself by default.
 
@@ -216,22 +216,20 @@ if (!file.exists("cargo_weights.gif")) {
 
 ![Animation of cargo flow](cargo_weights.gif)
 
-http://relevantmisc.com/ggplot/instagram/2016/02/14/ig-over-time/
-http://2.bp.blogspot.com/-pogyMKoowkc/VSU7kXa2paI/AAAAAAAAFOM/dyb9WWBscmk/s1600/mapproj_cheatsheet.png
 
 # Visualization of passenger flow
 
 Secondly, we plotted which destinations are the most represented in the data. To make the figure more meaningful, we decided to plot the difference of these two values to get the airports which were more likely to be destination places from BUD and the ones from where BUD received more passengers. It seems that many planes went to the UK, Germany and France (and then presumably to the US too).
 
-```{r Passenger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
+```{r Passenger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE, fig.width=8, fig.height=6}
 df2 <- aggregate(NBR.OF.PASSENGERS ~ DESTINATION + FLIGH.DIRECTION, df, sum)
-df2$colorNBR.OF.PASSENGERS <- df2$NBR.OF.PASSENGERS # this going to be the colour of the markers
-df2$sizeNBR.OF.PASSENGERS <- df2$NBR.OF.PASSENGERS  # this is going to be the size of the markers
+df2$Heading.of.passengers <- df2$NBR.OF.PASSENGERS # this going to be the colour of the markers
+df2$Amount.of.passengers <- df2$NBR.OF.PASSENGERS  # this is going to be the size of the markers
 
-df2[df2$FLIGH.DIRECTION == "Incoming","colorNBR.OF.PASSENGERS"] <- df2[df2$FLIGH.DIRECTION == "Incoming","colorNBR.OF.PASSENGERS"] *-1
+df2[df2$FLIGH.DIRECTION == "Incoming","Heading.of.passengers"] <- df2[df2$FLIGH.DIRECTION == "Incoming","Heading.of.passengers"] *-1
 
 df2 <- aggregate(. ~ DESTINATION, df2[ ,c(1,4:5)], sum)
-df2 <- df2[df2$sizeNBR.OF.PASSENGERS > 0, ] 
+df2 <- df2[df2$Amount.of.passengers > 0, ] 
 
 df2 <- merge(df2, locationCityCoordinates)
 
@@ -239,8 +237,8 @@ map <- get_map(location = 'Serbia', zoom = 4, maptype = "roadmap")
 
 gg <- ggmap(map)
 gg <- gg + geom_point(data = df2, 
-                 aes(x = lonCi, y = latCi, size = sizeNBR.OF.PASSENGERS, 
-                     fill = colorNBR.OF.PASSENGERS) , colour="black", pch=21) 
+                 aes(x = lonCi, y = latCi, size = Amount.of.passengers, 
+                     fill = Heading.of.passengers) , colour="black", pch=21) 
 gg <- gg + theme_bw() + scale_fill_gradient2(low = "blue", mid = "white", high = "red", guide = "colorbar")
 gg <- gg + labs(x=NULL, y=NULL) 
 gg <- gg + theme(panel.grid=element_blank(),
@@ -251,17 +249,18 @@ gg <- gg + theme(panel.grid=element_blank(),
 print(gg)
 ```
 
+
 This looks very interesting, however, there are a lot of destinations. Attaching text annotations to all of them would have made the graph crowded, so we've rather opted for an interactive visualization. [Plotly](https://plot.ly/) recently made available its mapping toolkit along with the offline version of their D3.js based plotting solution. We used jet colormap to display the difference between incoming and outgoing passenger numbers to a given airport. The size of the markers is proportionate to the sum passengers in that direction. The plot is zoomable & hoverable, this way even the smaller airports can be seen quite well. 
 
 ```{r, zoomable Passanger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
 df2$hover <- with(df2, paste("Destination: ", DESTINATION))
-df2$scaled_sizeNBR.OF.PASSENGERS <- df2$sizeNBR.OF.PASSENGERS / 30000
-df2$Difference <- df2$colorNBR.OF.PASSENGERS
+df2$scaled_Amount.of.passengers <- df2$Amount.of.passengers / 30000
+df2$Difference <- df2$Heading.of.passengers
 
 # marker styling
 m <- list(
   colorbar = list(title = "Millions USD"),
-  size = ~scaled_sizeNBR.OF.PASSENGERS, 
+  size = ~scaled_Amount.of.passengers, 
   opacity = 0.8, 
   symbol = 'circle'
 )
@@ -299,9 +298,6 @@ plot_ly(df2, lat = ~latCi, lon = ~lonCi, text = ~hover, color = ~Difference,
 ```
 
 
-http://stackoverflow.com/questions/37329433/how-to-build-simple-google-chart-in-shiny
-
-https://trinkerrstuff.wordpress.com/2013/05/11/animations-understood-5/
 
 
 #Air traffic movement vs airplane load
@@ -364,8 +360,8 @@ ggplot(data=loads, aes(x=DATE)) +
   theme_tufte() + labs(x="Time", y="Load of airport/airplane")
 ```
 
-http://svg-to-wkt.linfiniti.com/
 
-https://www.stat.auckland.ac.nz/~paul/Reports/Rlogo/Rlogo.html
+
+
 
 
