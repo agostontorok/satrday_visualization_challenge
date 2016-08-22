@@ -2,10 +2,10 @@
 title: "satRday challenge"
 author: "Agoston Torok & Fanni Kling"
 date: '2016 augusztus 18 '
-output: html_document
+output: 
+  html_document:
     theme: journal
     highlight: espresso
-
 ---
 
 We love travel. We love air traffic management and data science even more. It goes without saying how excited we got when we’ve seen this challenge-who cared about the Public holiday in Hungary when we got air traffic patterns to visualize?!
