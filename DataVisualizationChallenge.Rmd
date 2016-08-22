@@ -3,6 +3,8 @@ title: "satRday challenge"
 author: "Agoston Torok & Fanni Kling"
 date: '2016 augusztus 18 '
 output: html_document
+    theme: journal
+    highlight: espresso
 
 ---
 
