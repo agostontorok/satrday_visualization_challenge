@@ -1,5 +1,5 @@
 ---
-title: "satRday challenge"
+title: "satRday: Data Visualization Challenge"
 author: "Agoston Torok & Fanni Kling"
 date: '2016 augusztus 18 '
 output: 
@@ -7,10 +7,10 @@ output:
     number_sections: yes
     theme: spacelab
     toc: yes
-    highlight: sunburst
+    highlight: haddock
 ---
 
-We love travel. We love air traffic management and data science even more. It goes without saying how excited we got when we’ve seen this challenge-who cared about the Public holiday in Hungary when we got air traffic patterns to visualize?!
+We love to travel. We love air traffic management and data science even more. SO, it goes without saying how excited we got when we’ve seen this challenge. Who cared about the weekend when we had air traffic patterns to visualize?!
 
 
 # Getting started
@@ -19,7 +19,7 @@ First let's load all the packages needed for the script below. We use [pacman](h
 
 ```{r initialization, tidy = TRUE, echo=TRUE, message=FALSE}
 if (!"pacman" %in% installed.packages()) install.packages("pacman")
-pacman::p_load(devtools, xlsx, stringi, ggmap, plyr, sp, maps, rgdal, rgeos, mapproj, qdap, png, grid, ggthemes, ggplot2)
+pacman::p_load(devtools, xlsx, stringi, ggmap, plyr, sp, maps, rgdal, rgeos, mapproj, qdap, png, grid, ggthemes, ggplot2, reshape2)
 
 if (!"gganimate" %in% installed.packages()) devtools::install_github("dgrtwo/gganimate")
 library(gganimate)
@@ -27,7 +27,7 @@ if (!"plotly" %in% installed.packages()) devtools::install_github("ropensci/plot
 library(plotly)
 ```
 
-As we immediately jumped at the chance, the xlsx data file still had its mistakes. Thus, we firstly corrected those by recoding the Hungarian labels to English. Although the xlsx2 command is significantly faster than the xlsx (though requires more setup), it was still faster to use a csv for prototyping, so we generated one.
+When we jumped at the chance, the xlsx data file had some errors. Thus, we first corrected those by recoding the Hungarian labels to English. We used the xlsx package and the xlsx2 command, which is significantly faster than the simple xlsx (though requires more setup). Because it was even faster to use a csv for prototyping, we generated one of that too.
 
 ```{r setup, tidy = TRUE, echo=TRUE, message=FALSE}
 options(java.parameters = "-Xmx4000m")
@@ -70,18 +70,19 @@ if (file.exists("BUD flights 2007-2012.csv")){
   df$DESTINATION <- recodeR(df$DESTINATION, destinationDict$Hujngarian, destinationDict$English)
   df$COUNTRY <- recodeR(df$COUNTRY, countryDict$Hungarian, countryDict$English)
   
+  ### recode special characters 
+  df$DESTINATION <- sapply(df$DESTINATION, function(x) {iconv(x, to='ASCII//TRANSLIT')})  
+  
   write.csv(df, "BUD flights 2007-2012.csv", row.names=FALSE)
 }
 ```
 
 # Finding us on the map
 
-Finally, we were able to get started. The first thing that popped into our heads was to get a glimpse on where goods and people travel to/from Budapest. 
-In order to do this, first we had to find us on the map.
+Finally, we were able to get started. The first thing that popped into our heads was to get a glimpse on where goods and people travel to/from Budapest. In order to do this, first we had to localize the places on the map.
 
-There are several options for spatial data visualization in R, here we are going to show a selection of these. 
+
 First let's read the longitude and lattitude coordinates of the different countries [citation](https://www.r-bloggers.com/r-beginners-plotting-locations-on-to-a-world-map/), this is the first step and is common for all the packages we tried. We downloaded the coordinates of airports and countries as well. Of note, this can be used pretty flexible, i.e. you can download the coordinates of pretty much everything. Again, because downloading each time 500+ coordinates is rather time consuming we preserved the output in csv format for prototyping.
-
 
 ```{r readLocations, echo=TRUE, tidy=TRUE, warning=FALSE, message=FALSE}
 locationsCountryFileName <- "locations_country_lon_lat.csv"
@@ -117,46 +118,45 @@ df <- merge(df, locationCountryCoordinates)
 
 # Visualization of cargo flow
 
-If you click on the bubbles you can get more information on the places. Hong Kong seems to be a reasonable choice for our imports and it wins this hands down. 
+There are several options for spatial data visualization in R, here we are going to show a selection of these. Let's start with a ggplot and plotly hybrid. This visualization can tell pretty much more than a standard static plot: If you hover on the bubbles you can get more information on the places. For example, Hong Kong seems to be a reasonable choice of our imports and it wins this hands down. Te color of the bubbles shows whether export or import was more prominent in the direction. 
 
-```{r Cargo_staticVis, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
-df2 <- aggregate(CARGO.WEIGHT ~ DESTINATION + FLIGH.DIRECTION, df, sum)
-df2$sizeCARGO.WEIGHT <- df2$CARGO.WEIGHT  # this is going to be the size of the markers
-df2$colorCARGO.WEIGHT <- df2$CARGO.WEIGHT # this going to be the colour of the markers
+```{r Cargo_interactiveVis, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE, fig.width=8}
+cargoData <- aggregate(CARGO.WEIGHT ~ DESTINATION + FLIGH.DIRECTION, df, sum)
+cargoData$sizeCARGO.WEIGHT <- cargoData$CARGO.WEIGHT  # this is going to be the size of the markers
+cargoData$colorCARGO.WEIGHT <- cargoData$CARGO.WEIGHT # this going to be the colour of the markers
 
-df2[df2$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] <- 0
+cargoData[cargoData$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] <- 0
 
-df2 <- aggregate(. ~ DESTINATION, df2[ ,c(1,4:5)], sum)
-df2 <- df2[df2$sizeCARGO.WEIGHT > 0, ] 
-df2$colorCARGO.WEIGHT <- round(df2$colorCARGO.WEIGHT / df2$sizeCARGO.WEIGHT *100)
+cargoData <- aggregate(. ~ DESTINATION, cargoData[ ,c(1,4:5)], sum)
+cargoData <- cargoData[cargoData$sizeCARGO.WEIGHT > 0, ] 
+cargoData$colorCARGO.WEIGHT <- round(cargoData$colorCARGO.WEIGHT / cargoData$sizeCARGO.WEIGHT *100)
 
   
-df2 <- merge(df2, locationCityCoordinates)
+cargoData <- merge(cargoData, locationCityCoordinates)
 
-gg <- ggplot(world.cities, aes(long, lat)) +
+myPlot <- ggplot(world.cities, aes(long, lat)) +
   borders(regions = ".", fill = "grey90") 
-gg <- gg + geom_point(data = df2, 
+myPlot <- myPlot + geom_point(data = cargoData, 
                  aes(x = lonCi, y = latCi, text=paste(DESTINATION,"<br>All cargo:",sizeCARGO.WEIGHT, "<br>Export - Import:", colorCARGO.WEIGHT),
                      size = sizeCARGO.WEIGHT, color = colorCARGO.WEIGHT), 
                  alpha = 0.9)
-gg <- gg + scale_colour_gradient(low = "blue", high = "red",
+myPlot <- myPlot + scale_colour_gradient(low = "blue", high = "red",
                                               guide = guide_colourbar(title = "% of Export",
                                                                       title.position = "top",
                                                                       direction = "horizontal", 
                                                                       label = FALSE))
-gg <- gg + labs(x=NULL, y=NULL, size='Cargo weight' )
-gg <- gg + theme_map()
+myPlot <- myPlot + labs(x=NULL, y=NULL, size='Cargo weight' )
+myPlot <- myPlot + theme_map()
 ggplotly(tooltip = c("text"))
 ```
 
-While this picture is worth a thousand words, the export/import have a time dynamic as well. Hence, an animation to create was indispensable here. Can you catch when we imported to Japan?
+While a picture is worth a thousand words, the export/import have a time dynamic as well. Hence, we made an animation here. Some very interesting things are visible, to avoid unreadable crowded texts we only show the cities on the dates where the sum cargo exceeded 50,000 metric tons. But there are other secrets: Can you spot when we imported to Japan? 
 
-First we were interested in the cargo flow. We displayed a world map using the [Mollweide projection](https://en.wikipedia.org/wiki/Mollweide_projection). If you are wondering how the different map projection look like, see [here](http://2.bp.blogspot.com/-pogyMKoowkc/VSU7kXa2paI/AAAAAAAAFOM/dyb9WWBscmk/s1600/mapproj_cheatsheet.png.) This projection is used because it emphasizes the accuracy of relative sizes of land and sea parts. The method used here is based on the example and polygon of [Bob Rudis](http://stackoverflow.com/a/27901570/5360901). For the animation we used the [gganimate](https://www.ggplot2-exts.org/gganimate.html) package by David Robinson. 
+On the animation, we displayed the world map using the [Mollweide projection](https://en.wikipedia.org/wiki/Mollweide_projection). If you are wondering how the different map projections look like, have a look at [here](http://2.bp.blogspot.com/-pogyMKoowkc/VSU7kXa2paI/AAAAAAAAFOM/dyb9WWBscmk/s1600/mapproj_cheatsheet.png.). This Mollweide projection is used because it emphasizes the accuracy of relative sizes of land and sea parts. The method used here is based on the example and polygon of [Bob Rudis](http://stackoverflow.com/a/27901570/5360901). For the animation we used the [gganimate](https://www.ggplot2-exts.org/gganimate.html) package by David Robinson. 
 
-Because we were working on Windows, setting up ffmepeg and imagemagick required a little effort. With imagemagick you are better installing it under C:\ immediately to avoid "space" problems in the path. ffmpeg needs to be added to the path, it does not add itself by default.
+A little backend info: We were working on Windows, setting up ffmpeg and imagemagick required a little effort. With imagemagick you are better installing it under C:\ immediately to avoid "space" problems in the path. With ffmpeg, remember that it needs to be added to the path, it does not add itself by default.
 
-
-```{r staticWorldMap, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
+```{r cargoAnimation, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
 world <- readOGR("ne_50m_admin_0_countries.geojson", "OGRGeoJSON")
 outline <- bbox(world)
 outline <- data.frame(xmin=outline["x","min"],
@@ -171,96 +171,95 @@ points <- data.frame(lon=c(-98.35, 134.21), lat=c(39.5, -25.36))
 cargo_by_month <- df
 cargo_by_month$sizeCARGO.WEIGHT <- cargo_by_month$CARGO.WEIGHT
 cargo_by_month$colorCARGO.WEIGHT <- cargo_by_month$CARGO.WEIGHT
-cargo_by_month$colorCARGO.WEIGHT[cargo_by_month$FLIGH.DIRECTION == 'Incoming'] <- cargo_by_month$colorCARGO.WEIGHT[cargo_by_month$FLIGH.DIRECTION == 'Incoming']*-1
+cargo_by_month$colorCARGO.WEIGHT[cargo_by_month$FLIGH.DIRECTION == 'Incoming'] <- 0
 cargo_by_month <- aggregate(cbind(colorCARGO.WEIGHT, sizeCARGO.WEIGHT) ~ DESTINATION + DATE, cargo_by_month, sum)
-cargo_by_month$colorCARGO.WEIGHT <- cargo_by_month$colorCARGO.WEIGHT / cargo_by_month$sizeCARGO.WEIGHT
+
 cargo_by_month <- cargo_by_month[cargo_by_month$sizeCARGO.WEIGHT > 0, ]
+cargo_by_month$colorCARGO.WEIGHT <- cargo_by_month$colorCARGO.WEIGHT / cargo_by_month$sizeCARGO.WEIGHT * 100
 
 cargo_by_month <- merge(cargo_by_month, locationCityCoordinates)
 
 if (!file.exists("cargo_weights.gif")) {
-  gg <- ggplot()
+  myPlot <- ggplot()
   # first let's create the sea
-  gg <- gg + geom_rect(data=outline, 
+  myPlot <- myPlot + geom_rect(data=outline, 
                        aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax), 
                        color=1, fill="lightblue", size=0.3)
   # then let the land emerge
-  gg <- gg + geom_map(data=world, map=world,
+  myPlot <- myPlot + geom_map(data=world, map=world,
                       aes(x=long, y=lat, map_id=id), 
                       fill="darkseagreen", color="gray10", size=0.3)
   # then let people populate the Earth
-  gg <- gg + geom_point(aes(x=lonCi, y=latCi, size=sizeCARGO.WEIGHT, 
+  myPlot <- myPlot + geom_point(aes(x=lonCi, y=latCi, size=sizeCARGO.WEIGHT, 
                             frame=DATE, fill=colorCARGO.WEIGHT),
                         data=cargo_by_month, colour="black", pch=21, alpha=0.8) + 
     scale_size(range = c(2, 10))
-  gg <- gg + geom_text(aes(x=lonCi, y=latCi, label=DESTINATION,
+  myPlot <- myPlot + geom_text(aes(x=lonCi, y=latCi, label=DESTINATION,
                             size=sizeCARGO.WEIGHT, frame=DATE), 
                         data=cargo_by_month[cargo_by_month$sizeCARGO.WEIGHT > 5e5, ],
                        alpha=0.8, vjust = 1, hjust = 1)
-  gg <- gg + scale_fill_gradient2(low = "blue", mid = "white", high = "red", guide = "colorbar")
+  myPlot <- myPlot + scale_fill_gradient2(low = "blue", mid = "white", high = "red", guide = "colorbar")
   
-  gg <- gg + coord_map("mollweide") 
+  myPlot <- myPlot + coord_map("mollweide") 
   
   # make the plot pretty
-  gg <- gg + theme_bw()
-  gg <- gg + labs(x=NULL, y=NULL, size='All cargo weight', fill='Export - Import difference')
-  gg <- gg + theme(panel.grid=element_blank(),
+  myPlot <- myPlot + theme_bw()
+  myPlot <- myPlot + labs(x=NULL, y=NULL, size='All cargo weight', fill='% of Export')
+  myPlot <- myPlot + theme(panel.grid=element_blank(),
                    #legend.position="none", 
                    panel.border=element_blank(),
                    axis.ticks=element_blank(),
                    axis.text=element_blank()) 
-  print(gg)
-  gg_animate(gg, interval = 0.5, filename = "cargo_weights.gif", ani.width=1280, ani.height=800) 
+  gg_animate(myPlot, interval = 0.5, filename = "cargo_weights.gif", ani.width=1280, ani.height=800) 
 }
 ```
 
-![Animation of cargo flow](cargo_weights.gif)
-
+![.](cargo_weights.gif)
 
 # Visualization of passenger flow
 
-Secondly, we plotted which destinations are the most represented in the data. To make the figure more meaningful, we decided to plot the difference of these two values to get the airports which were more likely to be destination places from BUD and the ones from where BUD received more passengers. It seems that many planes went to the UK, Germany and France (and then presumably to the US too).
+We were wondering whether people followed the routes of goods. So second, we plotted which destinations are the most represented in the data. To make the figure more meaningful, we decided to plot the difference of these two values to get the airports which were more likely to be destination places from BUD and the ones from where BUD received more passengers. It seems that many planes went to the UK, Germany and France (and then presumably to the US too).
 
 ```{r Passenger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE, fig.width=8, fig.height=6}
-df2 <- aggregate(NBR.OF.PASSENGERS ~ DESTINATION + FLIGH.DIRECTION, df, sum)
-df2$Heading.of.passengers <- df2$NBR.OF.PASSENGERS # this going to be the colour of the markers
-df2$Amount.of.passengers <- df2$NBR.OF.PASSENGERS  # this is going to be the size of the markers
+passengerData <- aggregate(NBR.OF.PASSENGERS ~ DESTINATION + FLIGH.DIRECTION, df, sum)
+passengerData$colPassengers <- passengerData$NBR.OF.PASSENGERS # this going to be the colour of the markers
+passengerData$sizePassengers <- passengerData$NBR.OF.PASSENGERS  # this is going to be the size of the markers
 
-df2[df2$FLIGH.DIRECTION == "Incoming","Heading.of.passengers"] <- df2[df2$FLIGH.DIRECTION == "Incoming","Heading.of.passengers"] *-1
+passengerData[passengerData$FLIGH.DIRECTION == "Incoming","colPassengers"] <- 0
+passengerData <- aggregate(. ~ DESTINATION, passengerData[ ,c(1,4:5)], sum)
+passengerData <- passengerData[passengerData$sizePassengers > 0, ] 
+passengerData$colPassengers <- passengerData$colPassengers / passengerData$sizePassengers * 100
 
-df2 <- aggregate(. ~ DESTINATION, df2[ ,c(1,4:5)], sum)
-df2 <- df2[df2$Amount.of.passengers > 0, ] 
-
-df2 <- merge(df2, locationCityCoordinates)
+passengerData <- merge(passengerData, locationCityCoordinates)
 
 map <- get_map(location = 'Serbia', zoom = 4, maptype = "roadmap")
 
-gg <- ggmap(map)
-gg <- gg + geom_point(data = df2, 
-                 aes(x = lonCi, y = latCi, size = Amount.of.passengers, 
-                     fill = Heading.of.passengers) , colour="black", pch=21) 
-gg <- gg + theme_bw() + scale_fill_gradient2(low = "blue", mid = "white", high = "red", guide = "colorbar")
-gg <- gg + labs(x=NULL, y=NULL) 
-gg <- gg + theme(panel.grid=element_blank(),
+myPlot <- ggmap(map)
+myPlot <- myPlot + geom_point(data = passengerData, 
+                 aes(x = lonCi, y = latCi, size = sizePassengers, 
+                     fill = colPassengers) , colour="black", pch=21) 
+myPlot <- myPlot + theme_bw() + scale_fill_gradient2(low = "blue", mid = "white", high = "red", guide = "colorbar")
+myPlot <- myPlot + labs(x=NULL, y=NULL, size="# of passengers", fill = "% of outgoing passengers") 
+myPlot <- myPlot + theme(panel.grid=element_blank(),
                  #legend.position="none", 
                  panel.border=element_blank(),
                  axis.ticks=element_blank(),
                  axis.text=element_blank())
-print(gg)
+print(myPlot)
 ```
 
 
 This looks very interesting, however, there are a lot of destinations. Attaching text annotations to all of them would have made the graph crowded, so we've rather opted for an interactive visualization. [Plotly](https://plot.ly/) recently made available its mapping toolkit along with the offline version of their D3.js based plotting solution. We used jet colormap to display the difference between incoming and outgoing passenger numbers to a given airport. The size of the markers is proportionate to the sum passengers in that direction. The plot is zoomable & hoverable, this way even the smaller airports can be seen quite well. 
 
 ```{r, zoomable Passanger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
-df2$hover <- with(df2, paste("Destination: ", DESTINATION))
-df2$scaled_Amount.of.passengers <- df2$Amount.of.passengers / 30000
-df2$Difference <- df2$Heading.of.passengers
+passengerData$hover <- with(passengerData, paste("Destination: ", DESTINATION))
+passengerData$scaled_sizePassengers <- passengerData$sizePassengers / 30000
+passengerData$Outgoing <- passengerData$colPassengers
 
 # marker styling
 m <- list(
-  colorbar = list(title = "Millions USD"),
-  size = ~scaled_Amount.of.passengers, 
+  colorbar = list(title = "% of Outgoing"),
+  size = ~scaled_sizePassengers, 
   opacity = 0.8, 
   symbol = 'circle'
 )
@@ -291,25 +290,27 @@ g <- list(
   subunitwidth = 1
 )
 
-plot_ly(df2, lat = ~latCi, lon = ~lonCi, text = ~hover, color = ~Difference,
+plot_ly(passengerData, lat = ~latCi, lon = ~lonCi, text = ~hover, color = ~Outgoing,
         type = 'scattergeo', locationmode = 'country names', mode = 'markers',
         colors = jet, marker = m) %>% 
   layout(title = 'Incoming/outgoing passengers of Liszt Ferenc Airport', geo = g, xaxis = ax, yaxis = ax)
 ```
 
-
-
-
 #Air traffic movement vs airplane load
 
-Now that we assessed the habits of the passengers, we've gotten to the best part of the challenge: to see how BUD handled the demand! We are aware of a lot of things that could have affected the travelling mood and the airport operations (e.g. budget companies, adverse weather, financial crisis etc.). We assumed that the MALÉV grounding must also have had its implication on the performance at BUD. Thus, we were intrigued to see how the general trend changed over the months regarding the air traffic movements at the airport and the load of the planes (nbr of passengers/nbr of seats). 
+Now that we assessed the habits of the passengers, we've gotten to the best part of the challenge: to see how BUD handled the demand! We are aware of a lot of things that could have affected the travelling mood and the airport operations:
+- budget companies
+- adverse weather
+- financial crisis
+- MALÉV grounding
 
-After the time series decomposition the trend component was used instead of the seasonal since the summer peaks and winter lows had not taken us by surprise. 
+We hypothesized that the MALÉV grounding might have been and end result of a longer bad trend at BUD. Thus, we were intrigued to see how the general trend changed over the months regarding the (1) air traffic movements at the airport and the (2) load of the planes (nbr of passengers/nbr of seats). 
 
-The figure shows that whilst the number of movements (i.e. the number of takeoffs and landings) decreased, the aircraft load has gradually increased. By the time of the Malév bankruptcy, you can see that some efforts must have been made to minimize its potential negative impact. 
+These traffics had a seasonal variation, so to have a clearer view of the greater trend underlying them, we performed Loess decomposition. After the time series decomposition the trend component was selected for further analysis. We plotted the load of the airport and the load of the airplanes on the same plot after standardisation with baseline correction and w/o centering.
 
-So how could the airlines react to such event? The figure suggests that the load factor (utilization of flights) strongly improved while the number of movements (takeoff/landing) reduced. This leads us to the conclusion that for instance, airlines should have operated larger aircrafts to fill the void.
+The figure shows that whilst the number of movements (i.e. the number of takeoffs and landings) decreased, the aircraft load has gradually increased (i.e. the planes were more and more full of passengers). By the time of the Malév bankruptcy, you can see that some efforts must have been made to minimize its potential negative impact. 
 
+So how could the airlines react to such event after the end of our dataset? The figure suggests that the load factor (utilization of flights) strongly improved while the number of movements (takeoff/landing) reduced. This leads us to the conclusion that for instance, airlines should have operated larger aircrafts to fill the void.
 
 ```{r, Airport_demand, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
 df$plane_load <-df$NBR.OF.PASSENGERS/df$SEAT.CAPACITY
@@ -341,26 +342,32 @@ url_dl(url="http://92.48.119.71/wp-content/uploads/2015/09/Airplane-Icon.png")
 airplane_img <- readPNG("Airplane-Icon.png")
 airplane <- rasterGrob(airplane_img)
 
+# for prettier plotting let's melt
+loads$trendAirplane <- scale(loads$trendAirplane, center = FALSE)
+loads$trendAirport <- scale(loads$trendAirport, center = FALSE)
+loads <- melt(loads, id.vars = c("DATE","seasonalAirplane","remainderAirplane","seasonalAirport", "remainderAirport"))
+
 last_point = dim(loads)[1]
 
-ggplot(data=loads, aes(x=DATE)) +
-  geom_line(aes(y=scale(trendAirplane, center = FALSE)), size=1, color = "red") + 
-  geom_line(aes(y=scale(trendAirport, center = FALSE)), size=1, color = "blue") + 
+ggplot(data=loads, aes(x=DATE, y=value, linetype=variable)) +
+  geom_line(size=1)  + geom_rangeframe(data=loads, aes(x=DATE, y=value, group=variable), inherit.aes = FALSE) +  
+   theme_tufte() + theme(legend.position="none") +
   annotation_custom(airport, 
-                    xmin=as.numeric(loads$DATE[last_point-10]), 
+                    xmin=as.numeric(loads$DATE[last_point-15]), 
                     xmax=as.numeric(loads$DATE[last_point]), 
-                    ymin=scale(loads$trendAirport, center = FALSE)[last_point], 
-                    ymax=scale(loads$trendAirport, center = FALSE)[last_point] + 1) +
+                    ymin=-2.5, 
+                    ymax=-1.5) +
   annotation_custom(airplane, 
-                    xmin=as.numeric(loads$DATE[last_point-10]), 
+                    xmin=as.numeric(loads$DATE[last_point-15]), 
                     xmax=as.numeric(loads$DATE[last_point]), 
-                    ymin=scale(loads$trendAirplane, center = FALSE)[last_point] -1, 
-                    ymax=scale(loads$trendAirplane, center = FALSE)[last_point] ) +
-  geom_rangeframe() +  
-  theme_tufte() + labs(x="Time", y="Load of airport/airplane")
+                    ymin=1, 
+                    ymax=2) + labs(x="Time", y="Load of airport/airplane")
 ```
 
 
+Cheers,
+
+Fanni & Agoston
 
 
 
