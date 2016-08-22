@@ -2,21 +2,24 @@
 title: "satRday challenge"
 author: "Agoston Torok & Fanni Kling"
 date: '2016 augusztus 18 '
-output: html_document
+output:
+  html_document:
+    css: style.css
+/* Whole document: */
+body{
+  font-family: Helvetica;
+  font-size: 16pt;
+}
+/* Headers */
+h1,h2,h3,h4,h5,h6{
+  font-size: 24pt;
+}
 ---
 
-* format fonts (same as the Oldenborg one)
-* format picture sizes
-* tidy code everywhere
+We love travel. We love air traffic management and data science even more. It goes without saying how excited we got when we’ve seen this challenge-who cared about the Public holiday in Hungary when we got air traffic patterns to visualize?!
 
-Flow: 
-- First we were interested in where goods travel from/to Budapest
-- A lof of places are visible in the interactive plot, however it is possible that they have a time dynamic
-- Indeed the animation shows time dynamics
-- Let's see how people use the airport
-- It seems that people from BUD mostly travel intracontinentally, however we don't see all these places in the small map, so let's use a scrollable plotly map
-- Good, but wait! this must have a dynamic too, and this could be even more interesting since we are aware of a lot of things that could have affected the travelling mood e.g. budget companies, financial crisis, MALÉV crisis etc. 
-- Let's see how the general trend (.. because we are talking baout general trend we need to get rid of the seasonal effects) changed over the months in the load of the airport and in the load of the planes. Bamm WOW
+As we immediately jumped at the chance, the xlsx data file still had its mistakes. Thus, we firstly corrected those by recoding the Hungarian labels to English. Although the xlsx2 command is significantly faster than the xlsx (though requires more setup), it was still faster to use a csv for prototyping, so we generated one.
+
 
 # Getting started
 
@@ -34,7 +37,7 @@ library(plotly)
 
 Then we read the xlsx file. Unfortunatelly, although the file contained an English translation the data seemed to be messed up, so we had to recode again the Hungarian labels to English. Although the xlsx2 command is signifcantly faster than the xlsx (though requires more setup... trade off), it was still faster to use a csv for prototyping, so we generated one.
 
-```{r setup, tidy = TRUE,  include=FALSE}
+```{r setup, tidy = TRUE,  include=FALSE, echo=FALSE}
 options(java.parameters = "-Xmx4000m")
 
 if (file.exists("BUD flights 2007-2012.csv")){
@@ -84,7 +87,7 @@ if (file.exists("BUD flights 2007-2012.csv")){
 There are several options for spatial data visualization in R, here we are going to show a selection of these. First let's read the longitude and lattitude coordinates of the the different countries [citation](https://www.r-bloggers.com/r-beginners-plotting-locations-on-to-a-world-map/), this is the first step and is common for all the packages we tried. We downloaded the coordinates of airports and countries as well, note: this can be used pretty flexible, i.e. you can download the coordinates of pretty much everything. Again, because downloading each time 500+ coordinates is rather time consuming we preserved the output in csv format for prototyping
 
 
-```{r readLocations}
+```{r readLocations, echo=FALSE, tidy=TRUE}
 locationsCountryFileName <- "locations_country_lon_lat.csv"
 
 if (file.exists(locationsCountryFileName)){
@@ -123,7 +126,7 @@ First we were interested in the cargo flow. We displayed a world map using the [
 Because we were working on Windows, setting up ffmepeg and imagemagick required a little effort. With imagemagick you are better installing it under C:\ immediatelly to avoid "space" problems in the path. ffmpeg needs to be added to the path, it does not add itself by default.
 
 
-```{r staticWorldMap}
+```{r staticWorldMap, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
 world <- readOGR("ne_50m_admin_0_countries.geojson", "OGRGeoJSON")
 outline <- bbox(world)
 outline <- data.frame(xmin=outline["x","min"],
@@ -186,7 +189,7 @@ if (!file.exists("cargo_weights.gif")) {
 http://relevantmisc.com/ggplot/instagram/2016/02/14/ig-over-time/
 http://2.bp.blogspot.com/-pogyMKoowkc/VSU7kXa2paI/AAAAAAAAFOM/dyb9WWBscmk/s1600/mapproj_cheatsheet.png
 
-```{r}
+```{r Passenger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
 df2 <- aggregate(NBR.OF.PASSENGERS ~ DESTINATION + FLIGH.DIRECTION, df, sum)
 df2$colorNBR.OF.PASSENGERS <- df2$NBR.OF.PASSENGERS # this going to be the colour of the markers
 df2$sizeNBR.OF.PASSENGERS <- df2$NBR.OF.PASSENGERS  # this is going to be the size of the markers
@@ -216,7 +219,7 @@ print(gg)
 
 This looks very interesting, however there are a lot of destinations. Giving text annotations for all of them would make the graph crowded, so we choosed an interactive visualization instead. [Plotly](https://plot.ly/) recently made available its mapping toolkit along with the offline version of their D3.js based plotting solution. We used jet colormap to display the difference between incoming and outgoing passenger numbers to a given airport. The size of the markers is proportionate to the sum passengers in that direction. The plot is zoomable & hoverable, this way even the smaller airports can be seen well. 
 
-```{r}
+```{r zoomable Passanger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
 df2$hover <- with(df2, paste("Destination: ", DESTINATION))
 df2$scaled_sizeNBR.OF.PASSENGERS <- df2$sizeNBR.OF.PASSENGERS / 30000
 df2$Difference <- df2$colorNBR.OF.PASSENGERS
@@ -266,7 +269,7 @@ http://stackoverflow.com/questions/37329433/how-to-build-simple-google-chart-in-
 
 https://trinkerrstuff.wordpress.com/2013/05/11/animations-understood-5/
 
-```{r}
+```{r Cargo_staticVis, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
 df2 <- aggregate(CARGO.WEIGHT ~ DESTINATION + FLIGH.DIRECTION, df, sum)
 df2$sizeCARGO.WEIGHT <- df2$CARGO.WEIGHT  # this is going to be the size of the markers
 df2$colorCARGO.WEIGHT <- df2$CARGO.WEIGHT # this going to be the colour of the markers
@@ -297,7 +300,7 @@ ggplotly(tooltip = c("text"))
 ```
 
 
-```{r}
+```{r, Airport_demand, tidy=TRUE, warning=FALSE, message=FALSE, echo=TRUE}
 df$plane_load <-df$NBR.OF.PASSENGERS/df$SEAT.CAPACITY
 loads <- cbind(aggregate(plane_load ~ DATE, df, mean), # load of an average plane
                     aggregate(NBR.OF.FLIGHTS ~ DATE, df, sum)) # load of the airport in the given interval
