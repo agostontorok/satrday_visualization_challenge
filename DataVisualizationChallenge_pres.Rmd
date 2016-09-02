@@ -1,0 +1,360 @@
+---
+title: "satRday: Data Visualization Challenge"
+author: "Agoston Torok & Fanni Kling"
+date: '3 September 2016'
+output: 
+  html_document:
+    number_sections: yes
+    theme: spacelab
+    toc: yes
+    highlight: haddock
+---
+
+# Aims
+
+  -  Explore and visualize air-traffic data $\rightarrow$ insights to air traffic
+  -  Explore state-of-art tools for this in R $\rightarrow$ tutorial
+	
+	$\vdash$ *.rmd document available on github: [https://github.com/agostontorok/satrday_visualization_challenge](https://github.com/agostontorok/satrday_visualization_challenge)
+	
+<hr>
+
+# Data munging
+
+- read in using xlsx2
+- recode the Hungarian to English (_"we thought it was a feature, but it turned out to be a bug"_)
+- get geocodes from Google Maps
+- calculate total cargo/passenger flow
+- calculate the ratio of outgoing cargo/passenger
+
+```{r initialization, tidy = TRUE, echo=FALSE, message=FALSE}
+if (!"pacman" %in% installed.packages()) install.packages("pacman")
+pacman::p_load(devtools, xlsx, stringi, ggmap, plyr, sp, maps, rgdal, rgeos, mapproj, qdap, png, grid, ggthemes, ggplot2, reshape2)
+
+if (!"gganimate" %in% installed.packages()) devtools::install_github("dgrtwo/gganimate")
+library(gganimate)
+if (!"plotly" %in% installed.packages()) devtools::install_github("ropensci/plotly")
+library(plotly)
+```
+
+```{r setup, tidy = TRUE, echo=FALSE, message=FALSE}
+options(java.parameters = "-Xmx4000m")
+
+if (file.exists("BUD flights 2007-2012.csv")){
+  df <- read.csv("BUD flights 2007-2012.csv", colClasses = c(rep("character", 7),
+                                                              "Date",
+                                                              "numeric",
+                                                              rep("character", 3),
+                                                              rep("numeric", 4)))
+} else {
+  recodeR <- function(data, oldvalue, newvalue) {
+      # create the return vector
+      oldvalue <- c(as.character(oldvalue))
+      newvalue <- c(as.character(newvalue))
+      data <- c(as.character(data))
+      newvec <- data
+      # put recoded values into the correct position in the return vector
+      for (i in unique(oldvalue)) newvec[data == i] <- newvalue[oldvalue == i]
+      newvec
+  }
+  
+  
+  # read the Hungarian version because the English was messed up
+  df <- read.xlsx2("BUD flights 2007-2012.xlsx", sheetIndex = 2,
+                   colClasses = c(rep("character", 7),
+                                    "Date",
+                                    "numeric",
+                                    rep("character", 3),
+                                    rep("numeric", 4)), 
+                   encoding="UTF-8")
+  colNamesDict <- read.xlsx("BUD flights 2007-2012.xlsx", sheetIndex = 3, encoding="UTF-8")
+  destinationDict <- read.xlsx("BUD flights 2007-2012.xlsx", sheetIndex = 4, encoding="UTF-8")
+  countryDict <- read.xlsx("BUD flights 2007-2012.xlsx", sheetIndex = 7, encoding="UTF-8")
+  colNamesDict$English <- gsub(" ",".",colNamesDict$English)
+  colnames(df) <- recodeR(colnames(df),colNamesDict$Hungarian, colNamesDict$English)
+  df$COMMERCIAL.FLAG <- recodeR(df$COMMERCIAL.FLAG,colNamesDict$Hungarian, colNamesDict$English)
+  df$FLIGH.DIRECTION <- recodeR(df$FLIGH.DIRECTION,colNamesDict$Hungarian, colNamesDict$English)
+  df$FLIGHT.TYPE <- recodeR(df$FLIGHT.TYPE,colNamesDict$Hungarian, colNamesDict$English)
+  df$DESTINATION <- recodeR(df$DESTINATION, destinationDict$Hujngarian, destinationDict$English)
+  df$COUNTRY <- recodeR(df$COUNTRY, countryDict$Hungarian, countryDict$English)
+  
+  ### recode special characters 
+  df$DESTINATION <- sapply(df$DESTINATION, function(x) {iconv(x, to='ASCII//TRANSLIT')})  
+  
+  write.csv(df, "BUD flights 2007-2012.csv", row.names=FALSE)
+}
+```
+
+```{r readLocations, echo=FALSE, tidy=TRUE, warning=FALSE, message=FALSE}
+locationsCountryFileName <- "locations_country_lon_lat.csv"
+
+if (file.exists(locationsCountryFileName)){
+  locationCountryCoordinates <- read.csv(locationsCountryFileName, header = TRUE)
+} else {
+  destinationCountries <- unique(as.character(df$COUNTRY))
+  locationCountryCoordinates <- geocode(destinationCountries)
+  locationCountryCoordinates$COUNTRY <- destinationCountries
+  write.csv(locationCountryCoordinates, locationsCountryFileName)
+}
+
+locationsCityFileName <- "locations_cities_lon_lat.csv"
+
+if (file.exists(locationsCityFileName)){
+  locationCityCoordinates <- read.csv(locationsCityFileName)
+} else {
+  destinationCities <- unique(as.character(df$DESTINATION))
+  locationCityCoordinates <- geocode(destinationCities)
+  locationCityCoordinates$DESTINATION <- destinationCities
+  write.csv(locationCityCoordinates, locationsCityFileName)
+}
+
+locationCountryCoordinates$X <- NULL
+locationCityCoordinates$X <- NULL
+
+locationCityCoordinates <- plyr::rename(locationCityCoordinates, c("lon"="lonCi", "lat"="latCi"))
+df <- merge(df, locationCityCoordinates)
+locationCountryCoordinates <- plyr::rename(locationCountryCoordinates, c("lon"="lonCo", "lat"="latCo"))
+df <- merge(df, locationCountryCoordinates)
+```
+
+# Visualization of cargo flow
+
+- see export/import locations (plotly - interactivity)
+- see export/import in time (gganimate - animation)
+
+```{r Cargo_interactiveVis, tidy=TRUE, warning=FALSE, message=FALSE, echo=FALSE, fig.width=8}
+cargoData <- aggregate(CARGO.WEIGHT ~ DESTINATION + FLIGH.DIRECTION, df, sum)
+cargoData$sizeCARGO.WEIGHT <- cargoData$CARGO.WEIGHT  # this is going to be the size of the markers
+cargoData$colorCARGO.WEIGHT <- cargoData$CARGO.WEIGHT # this going to be the colour of the markers
+
+cargoData[cargoData$FLIGH.DIRECTION == "Incoming","colorCARGO.WEIGHT"] <- 0
+
+cargoData <- aggregate(. ~ DESTINATION, cargoData[ ,c(1,4:5)], sum)
+cargoData <- cargoData[cargoData$sizeCARGO.WEIGHT > 0, ] 
+cargoData$colorCARGO.WEIGHT <- round(cargoData$colorCARGO.WEIGHT / cargoData$sizeCARGO.WEIGHT *100)
+
+  
+cargoData <- merge(cargoData, locationCityCoordinates)
+
+myPlot <- ggplot(world.cities, aes(long, lat)) +
+  borders(regions = ".", fill = "grey90") 
+myPlot <- myPlot + geom_point(data = cargoData, 
+                 aes(x = lonCi, y = latCi, text=paste(DESTINATION,"<br>All cargo:",sizeCARGO.WEIGHT, "<br>Export - Import:", colorCARGO.WEIGHT),
+                     size = sizeCARGO.WEIGHT, color = colorCARGO.WEIGHT), 
+                 alpha = 0.9)
+myPlot <- myPlot + scale_colour_gradient(low = "blue", high = "red",
+                                              guide = guide_colourbar(title = "% of Export",
+                                                                      title.position = "top",
+                                                                      direction = "horizontal", 
+                                                                      label = FALSE))
+myPlot <- myPlot + labs(x=NULL, y=NULL, size='Cargo weight' )
+myPlot <- myPlot + theme_map()
+ggplotly(tooltip = c("text"))
+```
+
+```{r cargoAnimation, tidy=TRUE, warning=FALSE, message=FALSE, echo=FALSE}
+world <- readOGR("ne_50m_admin_0_countries.geojson", "OGRGeoJSON")
+outline <- bbox(world)
+outline <- data.frame(xmin=outline["x","min"],
+                      xmax=outline["x","max"],
+                      ymin=outline["y","min"],
+                      ymax=outline["y","max"])
+
+world <- fortify(world)
+
+points <- data.frame(lon=c(-98.35, 134.21), lat=c(39.5, -25.36))
+
+cargo_by_month <- df
+cargo_by_month$sizeCARGO.WEIGHT <- cargo_by_month$CARGO.WEIGHT
+cargo_by_month$colorCARGO.WEIGHT <- cargo_by_month$CARGO.WEIGHT
+cargo_by_month$colorCARGO.WEIGHT[cargo_by_month$FLIGH.DIRECTION == 'Incoming'] <- 0
+cargo_by_month <- aggregate(cbind(colorCARGO.WEIGHT, sizeCARGO.WEIGHT) ~ DESTINATION + DATE, cargo_by_month, sum)
+
+cargo_by_month <- cargo_by_month[cargo_by_month$sizeCARGO.WEIGHT > 0, ]
+cargo_by_month$colorCARGO.WEIGHT <- cargo_by_month$colorCARGO.WEIGHT / cargo_by_month$sizeCARGO.WEIGHT * 100
+
+cargo_by_month <- merge(cargo_by_month, locationCityCoordinates)
+
+if (!file.exists("cargo_weights.gif")) {
+  myPlot <- ggplot()
+  # first let's create the sea
+  myPlot <- myPlot + geom_rect(data=outline, 
+                       aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax), 
+                       color=1, fill="lightblue", size=0.3)
+  # then let the land emerge
+  myPlot <- myPlot + geom_map(data=world, map=world,
+                      aes(x=long, y=lat, map_id=id), 
+                      fill="darkseagreen", color="gray10", size=0.3)
+  # then let people populate the Earth
+  myPlot <- myPlot + geom_point(aes(x=lonCi, y=latCi, size=sizeCARGO.WEIGHT, 
+                            frame=DATE, fill=colorCARGO.WEIGHT),
+                        data=cargo_by_month, colour="black", pch=21, alpha=0.8) + 
+    scale_size(range = c(2, 10))
+  myPlot <- myPlot + geom_text(aes(x=lonCi, y=latCi, label=DESTINATION,
+                            size=sizeCARGO.WEIGHT, frame=DATE), 
+                        data=cargo_by_month[cargo_by_month$sizeCARGO.WEIGHT > 5e5, ],
+                       alpha=0.8, vjust = 1, hjust = 1)
+  myPlot <- myPlot + scale_fill_gradient2(low = "blue", mid = "white", high = "red", guide = "colorbar")
+  
+  myPlot <- myPlot + coord_map("mollweide") 
+  
+  # make the plot pretty
+  myPlot <- myPlot + theme_bw()
+  myPlot <- myPlot + labs(x=NULL, y=NULL, size='All cargo weight', fill='% of Export')
+  myPlot <- myPlot + theme(panel.grid=element_blank(),
+                   #legend.position="none", 
+                   panel.border=element_blank(),
+                   axis.ticks=element_blank(),
+                   axis.text=element_blank()) 
+  gg_animate(myPlot, interval = 0.5, filename = "cargo_weights.gif", ani.width=1280, ani.height=800) 
+}
+```
+
+![.](cargo_weights.gif)
+
+# Visualization of passenger flow
+
+- is there such diversity in passenger flow?
+- passengers flow is mostly centered in Europe (ggmap)
+- there are some more distant locations where people like to travel (plotly - native)
+
+```{r Passenger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=FALSE, fig.width=8, fig.height=6}
+passengerData <- aggregate(NBR.OF.PASSENGERS ~ DESTINATION + FLIGH.DIRECTION, df, sum)
+passengerData$colPassengers <- passengerData$NBR.OF.PASSENGERS # this going to be the colour of the markers
+passengerData$sizePassengers <- passengerData$NBR.OF.PASSENGERS  # this is going to be the size of the markers
+
+passengerData[passengerData$FLIGH.DIRECTION == "Incoming","colPassengers"] <- 0
+passengerData <- aggregate(. ~ DESTINATION, passengerData[ ,c(1,4:5)], sum)
+passengerData <- passengerData[passengerData$sizePassengers > 0, ] 
+passengerData$colPassengers <- passengerData$colPassengers / passengerData$sizePassengers * 100
+
+passengerData <- merge(passengerData, locationCityCoordinates)
+
+map <- get_map(location = 'Serbia', zoom = 4, maptype = "roadmap")
+
+myPlot <- ggmap(map)
+myPlot <- myPlot + geom_point(data = passengerData, 
+                 aes(x = lonCi, y = latCi, size = sizePassengers, 
+                     fill = colPassengers) , colour="black", pch=21) 
+myPlot <- myPlot + theme_bw() + scale_fill_gradient2(low = "blue", mid = "white", high = "red", guide = "colorbar", midpoint = 50)
+myPlot <- myPlot + labs(x=NULL, y=NULL, size="# of passengers", fill = "% of outgoing passengers") 
+myPlot <- myPlot + theme(panel.grid=element_blank(),
+                 #legend.position="none", 
+                 panel.border=element_blank(),
+                 axis.ticks=element_blank(),
+                 axis.text=element_blank())
+print(myPlot)
+```
+```{r, zoomable Passanger_flow, tidy=TRUE, warning=FALSE, message=FALSE, echo=FALSE}
+passengerData$hover <- with(passengerData, paste("Destination: ", DESTINATION , "<br>Nr. of Passengers:", sizePassengers))
+passengerData$scaled_sizePassengers <- passengerData$sizePassengers^0.3
+#passengerData$scaled_sizePassengers[passengerData$scaled_sizePassengers < 0.01] <- 0.01
+passengerData$Outgoing <- passengerData$colPassengers
+
+# marker styling
+m <- list(
+  colorbar = list(title = "% of Outgoing"),
+  size = ~scaled_sizePassengers, 
+  opacity = 0.8, 
+  symbol = 'circle'
+)
+
+# color of markers
+blueRed <- c("blue", "white",  "red")
+
+# axis styling
+ax <- list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+)
+
+# geo styling
+g <- list(
+  scope = 'world',
+  projection = list(type = 'albers europe'),
+  showland = TRUE,
+  lonaxis = list(range = c(-20,50)),
+  lataxis = list(range = c(20,70)),
+  landcolor = toRGB("gray65"),
+  subunitcolor = toRGB("white"),
+  countrycolor = toRGB("white"),
+  countrywidth = 1,
+  subunitwidth = 1
+)
+
+plot_ly(passengerData, lat = ~latCi, lon = ~lonCi, text = ~hover, color = ~Outgoing,
+        type = 'scattergeo', locationmode = 'country names', mode = 'markers',
+        colors = blueRed, marker = m) %>% 
+  layout(title = 'Incoming/outgoing passengers of Liszt Ferenc Airport', geo = g, xaxis = ax, yaxis = ax)
+```
+
+# The MALÉV crisis
+
+- Jan-Feb 2012
+- Remove seasonal trends (STL)
+- Baseline is 2007
+- Add images to make it more infographic (ggplot)
+
+```{r, Airport_demand, tidy=TRUE, warning=FALSE, message=FALSE, echo=FALSE}
+df$plane_load <-df$NBR.OF.PASSENGERS/df$SEAT.CAPACITY
+loads <- cbind(aggregate(plane_load ~ DATE, df, mean), # load of an average plane
+                    aggregate(NBR.OF.FLIGHTS ~ DATE, df, sum)) # load of the airport in the given interval
+
+airportLoad <- ts(loads$NBR.OF.FLIGHTS, start = c(2007, 1), end = c(2012, 6), frequency = 12) 
+airplaneLoad <- ts(loads$plane_load, start = c(2007, 1), end = c(2012, 6), frequency = 12) 
+
+#time-series decomposition to get the trend component
+times <- sort(unique(df$DATE))
+airportLoadComps <- stl(airportLoad, s.window = "period")$time.series
+airportLoadComps <- as.data.frame(airportLoadComps)
+colnames(airportLoadComps) <- paste(colnames(airportLoadComps), "Airport", sep = "")
+airportLoadComps$DATE <- times
+airplaneLoadComps <- stl(airplaneLoad, s.window = "period")$time.series
+airplaneLoadComps <- as.data.frame(airplaneLoadComps)
+colnames(airplaneLoadComps) <- paste(colnames(airplaneLoadComps), "Airplane", sep = "")
+airplaneLoadComps$DATE <- times
+
+loads <- merge(airplaneLoadComps, airportLoadComps)
+
+loads[ ,2:7] <- loads[ ,2:7] - sapply(sapply(loads[1:10,2:7], mean), rep, 66) # baseline correction
+
+url_dl(url="https://d13yacurqjgara.cloudfront.net/users/618902/screenshots/1653451/building_changi-01_1x.png")
+airport_img <- readPNG("building_changi-01_1x.png")
+airport <- rasterGrob(airport_img)
+url_dl(url="http://92.48.119.71/wp-content/uploads/2015/09/Airplane-Icon.png")
+airplane_img <- readPNG("Airplane-Icon.png")
+airplane <- rasterGrob(airplane_img)
+
+# for prettier plotting let's melt
+loads$trendAirplane <- scale(loads$trendAirplane, center = FALSE)
+loads$trendAirport <- scale(loads$trendAirport, center = FALSE)
+loads <- melt(loads, id.vars = c("DATE","seasonalAirplane","remainderAirplane","seasonalAirport", "remainderAirport"))
+
+last_point = dim(loads)[1]
+
+ggplot(data=loads, aes(x=DATE, y=value, linetype=variable)) +
+  geom_line(size=1)  + geom_rangeframe(data=loads, aes(x=DATE, y=value, group=variable), inherit.aes = FALSE) +  
+   theme_tufte(base_size = 20) + theme(legend.position="none") +
+  annotation_custom(airport, 
+                    xmin=as.numeric(loads$DATE[last_point-15]), 
+                    xmax=as.numeric(loads$DATE[last_point]), 
+                    ymin=-2.5, 
+                    ymax=-1.5) +
+  annotation_custom(airplane, 
+                    xmin=as.numeric(loads$DATE[last_point-15]), 
+                    xmax=as.numeric(loads$DATE[last_point]), 
+                    ymin=1, 
+                    ymax=2) + labs(x="Year", y="Load of airport/airplane")
+```
+
+
+Cheers,
+
+Fanni & Agoston
+
+
+
+
